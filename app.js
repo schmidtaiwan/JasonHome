@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 4;
+  const PAGE_BUILD = 5;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -21,8 +21,6 @@
   };
 
   let toastTimer = 0;
-  let workerPromise = null;
-  let ocrChain = Promise.resolve();
 
   function toast(text) {
     const el = $("toast");
@@ -176,10 +174,8 @@
     const bmp = await createImageBitmap(file);
     try {
       const storeCanvas = drawFit(bmp, 2400);
-      const ocrCanvas = drawFit(bmp, 1400);
       const thumbCanvas = drawFit(bmp, 720);
       const store = await canvasBlob(storeCanvas, 0.86);
-      const ocr = await canvasBlob(ocrCanvas, 0.8);
       const thumb = await canvasBlob(thumbCanvas, 0.72);
       if (!store || !thumb) throw new Error("無法處理照片");
       return {
@@ -187,7 +183,6 @@
         storeMime: "image/jpeg",
         ext: ".jpg",
         thumb: thumb,
-        ocr: ocr,
         isPdf: false
       };
     } finally {
@@ -216,7 +211,6 @@
       storeMime: "application/pdf",
       ext: ".pdf",
       thumb: thumb,
-      ocr: snap,
       isPdf: true
     };
   }
@@ -231,7 +225,6 @@
           storeMime: "application/pdf",
           ext: ".pdf",
           thumb: await placeholderThumb("PDF"),
-          ocr: null,
           isPdf: true
         };
       }
@@ -243,7 +236,6 @@
         storeMime: file.type || "image/jpeg",
         ext: (/\.[a-z0-9]+$/i.exec(file.name || "") || [".jpg"])[0].toLowerCase(),
         thumb: await placeholderThumb("照片"),
-        ocr: null,
         isPdf: false
       };
     }
@@ -261,7 +253,7 @@
       mime: prepared.storeMime,
       category: "",
       catTouched: false,
-      date: "",
+      date: todayIso(),
       dateTouched: false,
       vendor: "",
       vendorTouched: false,
@@ -272,15 +264,14 @@
       invoiceNo: "",
       taxId: "",
       text: "",
-      needsReview: true,
+      needsReview: false,
       bytes: prepared.store.size || 0,
       createdAt: new Date().toISOString(),
       store: prepared.store,
       thumb: prepared.thumb,
-      ocr: prepared.ocr,
       isPdf: prepared.isPdf,
       previewUrl: URL.createObjectURL(prepared.isPdf ? prepared.thumb : prepared.store),
-      status: prepared.ocr ? "正在看關鍵字…" : "無法自動辨識，請選分類"
+      status: "請點一個分類"
     };
   }
 
@@ -304,7 +295,6 @@
     $("f-vendor").value = draft.vendor || "";
     $("f-amount").value = draft.amount == null ? "" : String(draft.amount);
     $("f-note").value = draft.note || "";
-    $("f-ocr").textContent = draft.text || "（還沒有辨識文字）";
     $("sheet-title").textContent = state.queue.length > 1
       ? ("第 " + (state.index + 1) + " / " + state.queue.length + " 張")
       : "上傳";
@@ -313,153 +303,7 @@
     document.querySelectorAll("#pick-cat button").forEach(function (btn) {
       btn.setAttribute("aria-pressed", btn.dataset.cat === draft.category ? "true" : "false");
     });
-  }
-
-  function applyOcr(draft, fields) {
-    if (fields.category && !draft.catTouched) {
-      draft.category = fields.category;
-      draft.needsReview = false;
-    }
-    if (!fields.category && !draft.catTouched) {
-      draft.category = "其他";
-      draft.needsReview = true;
-    }
-    if (fields.date && !draft.dateTouched) draft.date = fields.date;
-    if (fields.vendor && !draft.vendorTouched) draft.vendor = fields.vendor;
-    if (fields.amount != null && !draft.amountTouched) draft.amount = fields.amount;
-    if (fields.invoiceNo) draft.invoiceNo = fields.invoiceNo;
-    if (fields.taxId) draft.taxId = fields.taxId;
-    if (fields.keyword && draft.category && !draft.needsReview) {
-      draft.status = "看到「" + fields.keyword + "」→ " + draft.category;
-    } else if (draft.category && !draft.needsReview) {
-      draft.status = "建議分類：" + draft.category;
-    } else {
-      draft.status = "沒看到關鍵字，請點分類";
-    }
-  }
-
-  function setDraftStatus(draft, text) {
-    draft.status = text;
-    if (currentDraft() === draft) $("sheet-status").textContent = text;
-  }
-
-  function hasHit(fields) {
-    return !!(fields && (fields.keyword || fields.category));
-  }
-
-  async function readText(blob) {
-    if (typeof TextDetector !== "function") return "";
-    const bmp = await createImageBitmap(blob);
-    try {
-      const detector = new TextDetector();
-      const blocks = await detector.detect(bmp);
-      return (blocks || []).map(function (b) { return b.rawValue || ""; }).join("\n");
-    } catch (e) {
-      return "";
-    } finally {
-      if (bmp.close) bmp.close();
-    }
-  }
-
-  function onOcrLog(m) {
-    const draft = currentDraft();
-    if (!draft || !m) return;
-    if (m.status === "loading language traineddata") {
-      setDraftStatus(draft, "第一次準備辨識 " + Math.round((m.progress || 0) * 100) + "%");
-    }
-  }
-
-  function fastWorker() {
-    if (workerPromise) return workerPromise;
-    workerPromise = (async function () {
-      await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
-      const base = {
-        workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
-        langPath: "https://tessdata.projectnaptha.com/4.0.0_fast",
-        logger: onOcrLog
-      };
-      try {
-        return await window.Tesseract.createWorker("chi_tra", 1, Object.assign({
-          corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-simd-lstm.wasm.js"
-        }, base));
-      } catch (e) {
-        return await window.Tesseract.createWorker("chi_tra", 1, Object.assign({
-          corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-lstm.wasm.js"
-        }, base));
-      }
-    })();
-    workerPromise.catch(function () { workerPromise = null; });
-    return workerPromise;
-  }
-
-  async function focusBlob(blob, cropRatio, maxW) {
-    const bmp = await createImageBitmap(blob);
-    try {
-      const sw = bmp.width;
-      const sh = Math.max(1, Math.round(bmp.height * cropRatio));
-      const scale = Math.min(1, maxW / sw);
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(sw * scale));
-      canvas.height = Math.max(1, Math.round(sh * scale));
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(bmp, 0, 0, sw, sh, 0, 0, canvas.width, canvas.height);
-      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const d = img.data;
-      for (let i = 0; i < d.length; i += 4) {
-        let y = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] - 128) * 1.7 + 128;
-        if (y < 0) y = 0;
-        if (y > 255) y = 255;
-        d[i] = d[i + 1] = d[i + 2] = y;
-      }
-      ctx.putImageData(img, 0, 0);
-      return await canvasBlob(canvas, 0.85);
-    } finally {
-      if (bmp.close) bmp.close();
-    }
-  }
-
-  async function recognizeFast(blob) {
-    const worker = await fastWorker();
-    const result = await worker.recognize(blob);
-    return (result && result.data && result.data.text) || "";
-  }
-
-  async function runOcrNow(draft) {
-    if (!draft.ocr) return;
-    const gen = (draft.ocrGen || 0) + 1;
-    draft.ocrGen = gen;
-    setDraftStatus(draft, "正在看關鍵字…");
-    let text = "";
-    try {
-      text = await readText(draft.ocr);
-      if (draft.ocrGen !== gen) return;
-      let fields = window.JHClassify.extractFields(text);
-      if (!hasHit(fields)) {
-        setDraftStatus(draft, "正在讀單據上的字…");
-        const page = await focusBlob(draft.ocr, 1, 1000);
-        if (draft.ocrGen !== gen) return;
-        const pageText = await recognizeFast(page);
-        if (draft.ocrGen !== gen) return;
-        text = (text ? text + "\n" : "") + pageText;
-        fields = window.JHClassify.extractFields(text);
-      }
-      draft.text = String(text || "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 1500);
-      applyOcr(draft, fields);
-    } catch (e) {
-      if (draft.ocrGen !== gen) return;
-      console.error(e);
-      if (!draft.catTouched) draft.needsReview = true;
-      draft.status = "沒看到關鍵字，請點分類";
-    }
-    if (currentDraft() === draft) fillForm(draft);
-  }
-
-  function runOcr(draft) {
-    const job = ocrChain.then(function () { return runOcrNow(draft); });
-    ocrChain = job.then(function () {}, function () {});
-    return job;
+    showHelp($("pick-help"), draft.category);
   }
 
   async function openQueue(fileList) {
@@ -479,13 +323,11 @@
     $("sheet").hidden = false;
     setOverlay(true);
     fillForm(queue[0]);
-    queue.forEach(function (draft) { runOcr(draft); });
   }
 
   function closeSheet(force) {
     if (!force && state.queue.length && !confirm("這次選的檔案還沒存進雲端，要放棄嗎？")) return;
     state.queue.forEach(function (draft) {
-      draft.ocrGen = 0;
       if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
     });
     state.queue = [];
@@ -505,10 +347,8 @@
 
   function draftToItem(draft) {
     readFormInto(draft);
-    if (!draft.category) {
-      draft.category = "其他";
-      draft.needsReview = true;
-    }
+    if (!draft.category) throw new Error("請先點一個分類");
+    if (!draft.date) draft.date = todayIso();
     const snippet = String(draft.text || "").replace(/\s+/g, " ").trim().slice(0, 160);
     return {
       id: draft.id,
@@ -539,13 +379,17 @@
   async function onSaveOne() {
     const draft = currentDraft();
     if (!draft || state.busy) return;
+    readFormInto(draft);
+    if (!draft.category) {
+      toast("請先點一個分類");
+      return;
+    }
     state.busy = true;
     $("save-one").textContent = "上傳中…";
     try {
       const item = await saveDraft(draft);
       toast("已存到雲端：" + item.category + (item.vendor ? " · " + item.vendor : ""));
       if (navigator.vibrate) navigator.vibrate(12);
-      draft.ocrGen = 0;
       if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
       state.queue.splice(state.index, 1);
       if (!state.queue.length) {
@@ -566,6 +410,12 @@
 
   async function onSaveAll() {
     if (state.busy || state.queue.length < 2) return;
+    const shown = currentDraft();
+    if (shown) readFormInto(shown);
+    if (state.queue.some(function (d) { return !d.category; })) {
+      toast("每一張都要先點分類");
+      return;
+    }
     state.busy = true;
     try {
       const pending = state.queue.slice();
@@ -743,6 +593,13 @@
     }
   }
 
+  function showHelp(el, name) {
+    if (!el) return;
+    const text = window.JHClassify.helpOf(name);
+    el.hidden = !text;
+    el.textContent = text;
+  }
+
   function paintCats(host, selected, onPick) {
     host.replaceChildren();
     CAT.forEach(function (cat) {
@@ -763,7 +620,7 @@
       draft.catTouched = true;
       draft.category = cat;
       draft.needsReview = false;
-      draft.status = "分類：" + cat;
+      draft.status = "";
       fillForm(draft);
     });
   }
@@ -788,6 +645,7 @@
     $("open-file").href = $("open-drive").href;
     $("detail").dataset.cat = item.category || "其他";
     paintCats($("detail-cat"), item.category, function () {});
+    showHelp($("detail-help"), item.category);
     $("detail-cat").querySelectorAll("button").forEach(function (b) {
       b.setAttribute("aria-pressed", b.dataset.cat === item.category ? "true" : "false");
     });
@@ -903,9 +761,8 @@
     try {
       const cat = await window.JHDrive.readCatalog();
       state.items = cat.items || [];
-      $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，選完會自動猜分類，確認後就進雲端硬碟。";
+      $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，點分類後就存進雲端硬碟。";
       render();
-      fastWorker().catch(function () {});
     } catch (err) {
       console.error(err);
       toast(err.message || "讀取雲端失敗");
@@ -1032,6 +889,7 @@
       const btn = ev.target.closest("button");
       if (!btn || !$("detail-cat").contains(btn)) return;
       $("detail").dataset.cat = btn.dataset.cat;
+      showHelp($("detail-help"), btn.dataset.cat);
       $("detail-cat").querySelectorAll("button").forEach(function (b) {
         b.setAttribute("aria-pressed", b.dataset.cat === btn.dataset.cat ? "true" : "false");
       });

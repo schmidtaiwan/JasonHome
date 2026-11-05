@@ -354,6 +354,10 @@ button:active { transform: translateY(1px); }
 
 .pill[data-cat="帳單"] { background: #e5f4ee; color: #146048; }
 .pill[data-cat="稅單"] { background: #f3e4d8; color: #8a3b12; }
+.pill[data-cat="水電瓦斯與通訊"] { background: #e5f4ee; color: #146048; }
+.pill[data-cat="金融帳單"] { background: #e7eef8; color: #1d4e89; }
+.pill[data-cat="保險"] { background: #f3e8f6; color: #6b3a78; }
+.pill[data-cat="住家固定費用"] { background: #f8efd8; color: #8a5a12; }
 .pill[data-cat="發票"] { background: #e4eef8; color: #1d4e89; }
 .pill[data-cat="收據"] { background: #f8efd8; color: #8a5a12; }
 .pill[data-cat="其他"] { background: #eeeae4; color: #4e463c; }
@@ -515,12 +519,26 @@ button:active { transform: translateY(1px); }
 }
 
 .pick button {
-  flex: 1 1 30%;
+  flex: 1 1 calc(50% - 8px);
   min-height: 48px;
+  padding: 8px 10px;
   border-radius: 14px;
   border: 1px solid var(--line);
   background: var(--paper);
   font-weight: 700;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.cat-help {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 .pick button[aria-pressed="true"] {
@@ -555,19 +573,6 @@ textarea { min-height: 72px; resize: vertical; }
   border: 1px solid var(--line);
   background: var(--paper);
   font-weight: 700;
-}
-
-.ocr {
-  margin-top: 12px;
-  color: var(--muted);
-}
-
-.ocr summary { min-height: 44px; display: flex; align-items: center; font-weight: 700; }
-.ocr pre {
-  white-space: pre-wrap;
-  font: inherit;
-  margin: 0;
-  color: var(--ink);
 }
 
 .actions, .detail-actions {
