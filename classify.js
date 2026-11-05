@@ -1,4 +1,4 @@
-/* 依辨識文字把單據分成：帳單、稅單、發票、收據。純函式，可在瀏覽器與 Node 測試。 */
+/* 先看短關鍵字再分類：發票、信用卡、稅、銀行、收據。純函式，可在瀏覽器與 Node 測試。 */
 (function (root, factory) {
   const api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -107,7 +107,28 @@
     return fallback;
   }
 
+  // 越上面越優先。稅單常印「代收銀行」，所以「稅」要排在「銀行」前面；發票上的營業稅則以「發票」為準。
+  const KEYWORDS = [
+    ["發票", "發票"],
+    ["信用卡", "帳單"],
+    ["稅", "稅單"],
+    ["銀行", "帳單"],
+    ["收據", "收據"]
+  ];
+
+  function matchKeyword(text) {
+    const src = String(text || "");
+    for (let i = 0; i < KEYWORDS.length; i++) {
+      if (src.indexOf(KEYWORDS[i][0]) !== -1) {
+        return { keyword: KEYWORDS[i][0], category: KEYWORDS[i][1], score: 6 };
+      }
+    }
+    return null;
+  }
+
   function classifyText(text) {
+    const hit = matchKeyword(text);
+    if (hit) return { category: hit.category, score: hit.score, keyword: hit.keyword };
     const src = String(text || "");
     const scores = { "稅單": 0, "帳單": 0, "發票": 0, "收據": 0 };
     RULES.forEach(function (rule) {
@@ -121,8 +142,8 @@
         best = cat;
       }
     });
-    if (bestScore < 3) return { category: "", score: bestScore };
-    return { category: best, score: bestScore };
+    if (bestScore < 3) return { category: "", score: bestScore, keyword: "" };
+    return { category: best, score: bestScore, keyword: "" };
   }
 
   function extractFields(text) {
@@ -130,6 +151,7 @@
     return {
       category: found.category,
       score: found.score,
+      keyword: found.keyword || "",
       amount: extractAmount(text),
       date: extractDate(text),
       vendor: extractVendor(text),

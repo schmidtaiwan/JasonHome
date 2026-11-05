@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 2;
+  const PAGE_BUILD = 3;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -21,7 +21,6 @@
   };
 
   let toastTimer = 0;
-  let workerPromise = null;
 
   function toast(text) {
     const el = $("toast");
@@ -279,7 +278,7 @@
       ocr: prepared.ocr,
       isPdf: prepared.isPdf,
       previewUrl: URL.createObjectURL(prepared.isPdf ? prepared.thumb : prepared.store),
-      status: prepared.ocr ? "正在辨識分類…" : "無法自動辨識，請選分類"
+      status: prepared.ocr ? "正在看關鍵字…" : "無法自動辨識，請選分類"
     };
   }
 
@@ -328,50 +327,47 @@
     if (fields.amount != null && !draft.amountTouched) draft.amount = fields.amount;
     if (fields.invoiceNo) draft.invoiceNo = fields.invoiceNo;
     if (fields.taxId) draft.taxId = fields.taxId;
-    if (draft.category && !draft.needsReview) draft.status = "建議分類：" + draft.category;
-    else draft.status = "不確定分類，請點一個，或直接存成「其他」";
+    if (fields.keyword && draft.category && !draft.needsReview) {
+      draft.status = "看到「" + fields.keyword + "」→ " + draft.category;
+    } else if (draft.category && !draft.needsReview) {
+      draft.status = "建議分類：" + draft.category;
+    } else {
+      draft.status = "沒看到關鍵字，請點分類";
+    }
   }
 
-  async function ocrWorker() {
-    if (!workerPromise) {
-      workerPromise = (async function () {
-        await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
-        return window.Tesseract.createWorker("chi_tra+eng", 1, {
-          logger: function (m) {
-            const draft = currentDraft();
-            if (!draft || draft.text) return;
-            if (m.status === "loading language traineddata") {
-              draft.status = "第一次使用，正在下載中文辨識檔 " + Math.round((m.progress || 0) * 100) + "%";
-              if (currentDraft() === draft) $("sheet-status").textContent = draft.status;
-            } else if (m.status === "recognizing text") {
-              draft.status = "正在辨識文字 " + Math.round((m.progress || 0) * 100) + "%";
-              if (currentDraft() === draft) $("sheet-status").textContent = draft.status;
-            }
-          }
-        });
-      })();
+  async function readText(blob) {
+    if (typeof TextDetector !== "function") {
+      const err = new Error("no-detector");
+      throw err;
     }
-    return workerPromise;
+    const bmp = await createImageBitmap(blob);
+    try {
+      const detector = new TextDetector();
+      const blocks = await detector.detect(bmp);
+      return (blocks || []).map(function (b) { return b.rawValue || ""; }).join("\n");
+    } finally {
+      if (bmp.close) bmp.close();
+    }
   }
 
   async function runOcr(draft) {
     if (!draft.ocr) return;
-    const gen = ++draft.ocrGen || 1;
+    const gen = (draft.ocrGen || 0) + 1;
     draft.ocrGen = gen;
+    draft.status = "正在看關鍵字…";
+    if (currentDraft() === draft) $("sheet-status").textContent = draft.status;
     try {
-      const worker = await ocrWorker();
+      const text = await readText(draft.ocr);
       if (draft.ocrGen !== gen) return;
-      const result = await worker.recognize(draft.ocr);
-      if (draft.ocrGen !== gen) return;
-      const text = (result && result.data && result.data.text) || "";
-      draft.text = text.replace(/\n{3,}/g, "\n\n").trim().slice(0, 1500);
+      draft.text = String(text || "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 1500);
       applyOcr(draft, window.JHClassify.extractFields(draft.text));
     } catch (e) {
-      if (!draft.catTouched) {
-        draft.category = draft.category || "其他";
-        draft.needsReview = !draft.catTouched;
-      }
-      draft.status = "自動辨識失敗，請自己選分類";
+      if (draft.ocrGen !== gen) return;
+      if (!draft.catTouched) draft.needsReview = true;
+      draft.status = e && e.message === "no-detector"
+        ? "請直接點分類（這支瀏覽器無法快速看關鍵字）"
+        : "沒看到關鍵字，請點分類";
     }
     if (currentDraft() === draft) fillForm(draft);
   }
