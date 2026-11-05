@@ -1,9 +1,9 @@
 /* Google 登入與雲端硬碟。網頁只拿短期 token，單據本體不進 Git。
- * 範圍用 drive.file：這個網頁只能看到自己建立的檔案，讀不到整顆硬碟。
+ * 用 drive 範圍，第二個帳號才看得到分享過來的 JasonHome 資料夾。
  */
 (function (global) {
   const cfg = global.GOOGLE_CONFIG || {};
-  const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
+  const SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email";
   const enc = new TextEncoder();
 
   let tokenClient = null;
@@ -18,6 +18,25 @@
 
   function preferredEmail() {
     return String(cfg.preferredEmail || "").trim().toLowerCase();
+  }
+
+  function accountEmail() {
+    return String((account && account.email) || "").trim().toLowerCase();
+  }
+
+  function allowedEmails() {
+    const list = [];
+    function add(raw) {
+      const email = String(raw || "").trim().toLowerCase();
+      if (email && list.indexOf(email) < 0) list.push(email);
+    }
+    add(cfg.preferredEmail);
+    (cfg.editors || []).forEach(add);
+    return list;
+  }
+
+  function isAllowed(email) {
+    return allowedEmails().indexOf(String(email || "").trim().toLowerCase()) >= 0;
   }
 
   function folderName() {
@@ -166,9 +185,72 @@
     return out;
   }
 
+  async function shareVault(folderId) {
+    const others = allowedEmails().filter(function (email) { return email !== accountEmail(); });
+    for (let i = 0; i < others.length; i++) {
+      const res = await driveFetch(
+        "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(folderId) +
+        "/permissions?supportsAllDrives=true&sendNotificationEmail=false",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: "writer", type: "user", emailAddress: others[i] })
+        }
+      );
+      if (res.ok || res.status === 409) continue;
+      const text = await res.text();
+      if (/already exists|duplicate/i.test(text)) continue;
+      throw new Error("無法把資料夾分享給 " + others[i] + "。" + text.slice(0, 140));
+    }
+  }
+
+  async function vaultRoot() {
+    if (folderCache.has("vault")) return folderCache.get("vault");
+    const name = folderName();
+    const owner = preferredEmail();
+    const q = "mimeType='application/vnd.google-apps.folder' and name='" + qEscape(name) + "' and trashed=false";
+    const found = await listAll(q, "id,name,createdTime,ownedByMe,owners(emailAddress)");
+    const owned = found.filter(function (file) {
+      const emails = (file.owners || []).map(function (item) {
+        return String(item.emailAddress || "").trim().toLowerCase();
+      });
+      return emails.indexOf(owner) >= 0 || (file.ownedByMe && accountEmail() === owner);
+    });
+    owned.sort(function (a, b) {
+      return String(a.createdTime || "").localeCompare(String(b.createdTime || ""));
+    });
+    let id = owned[0] && owned[0].id;
+    if (!id) {
+      if (accountEmail() !== owner) {
+        throw new Error("還沒找到 " + owner + " 的「" + name + "」資料夾。請先用那個帳號登入一次，網頁會把資料夾分享出來。");
+      }
+      const res = await driveFetch("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name,
+          mimeType: "application/vnd.google-apps.folder",
+          parents: ["root"]
+        })
+      });
+      if (!res.ok) await readErr(res, "建立資料夾失敗");
+      const created = await res.json();
+      id = created.id;
+    }
+    if (accountEmail() === owner) await shareVault(id);
+    folderCache.set("vault", id);
+    folderCache.set("root/" + name, id);
+    return id;
+  }
+
   async function ensureFolderNow(parts) {
     let parent = "root";
-    for (let i = 0; i < parts.length; i++) {
+    let start = 0;
+    if (parts[0] === folderName()) {
+      parent = await vaultRoot();
+      start = 1;
+    }
+    for (let i = start; i < parts.length; i++) {
       const name = parts[i];
       const key = parent + "/" + name;
       if (folderCache.has(key)) {
@@ -563,6 +645,8 @@
     rebuild: rebuild,
     explainAuthError: explainAuthError,
     preferredEmail: preferredEmail,
+    allowedEmails: allowedEmails,
+    isAllowed: isAllowed,
     folderName: folderName,
     account: function () { return account; }
   };

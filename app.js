@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 5;
+  const PAGE_BUILD = 6;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -730,7 +730,7 @@
 
   function showMismatch(email) {
     const want = window.JHDrive.preferredEmail();
-    $("mismatch-text").textContent = "現在登入的是 " + email + "。單據只寫入 " + want + " 的雲端硬碟，請換成那個帳號。";
+    $("mismatch-text").textContent = "現在登入的是 " + email + "。請改用 " + window.JHDrive.allowedEmails().join(" 或 ") + "。檔案只放在 " + want + " 的雲端硬碟。";
     $("mismatch").hidden = false;
     $("main").hidden = true;
     $("filters").hidden = true;
@@ -743,7 +743,7 @@
     $("main").hidden = false;
     $("filters").hidden = false;
     document.querySelector(".dock").hidden = false;
-    $("who").textContent = email + " · 雲端硬碟 / " + window.JHDrive.folderName();
+    $("who").textContent = email + " · " + window.JHDrive.preferredEmail() + " 的雲端硬碟 / " + window.JHDrive.folderName();
   }
 
   async function enterApp(acc) {
@@ -751,7 +751,7 @@
     try { localStorage.setItem("jh_email", email); } catch (e) { /* 忽略 */ }
     $("gate").hidden = true;
     $("app").hidden = false;
-    if (email !== window.JHDrive.preferredEmail()) {
+    if (!window.JHDrive.isAllowed(email)) {
       showMismatch(acc.email);
       return;
     }
@@ -830,7 +830,7 @@
 
   function bind() {
     showVersion();
-    $("prefer").textContent = window.JHDrive.preferredEmail();
+    $("prefer").textContent = window.JHDrive.allowedEmails().join(" 或 ");
     $("login").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
     $("logout").addEventListener("click", onLogout);
     $("switch").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
@@ -914,7 +914,7 @@
     }
     let hint = "";
     try { hint = localStorage.getItem("jh_email") || ""; } catch (e) { hint = ""; }
-    if (hint && hint === window.JHDrive.preferredEmail()) {
+    if (hint && window.JHDrive.isAllowed(hint)) {
       $("gate-msg").textContent = "正在連上上次的 Google 帳號…";
       try {
         const acc = await window.JHDrive.login({ prompt: "", hint: hint });
