@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 9;
+  const PAGE_BUILD = 10;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -791,12 +791,22 @@
 
   async function onLogin(opts) {
     $("login").disabled = true;
-    $("gate-msg").textContent = "正在開啟 Google 登入…";
+    $("gate-msg").textContent = "正在進入…";
     try {
       const acc = await window.JHDrive.login(opts || { prompt: "select_account" });
       $("gate-msg").textContent = "";
       await enterApp(acc);
     } catch (err) {
+      if (opts && opts.hint && opts.prompt === "") {
+        try {
+          const acc = await window.JHDrive.login({ prompt: "select_account" });
+          $("gate-msg").textContent = "";
+          await enterApp(acc);
+          return;
+        } catch (err2) {
+          err = err2;
+        }
+      }
       console.error(err);
       $("gate-msg").textContent = window.JHDrive.explainAuthError(err);
     } finally {
@@ -849,7 +859,12 @@
   function bind() {
     showVersion();
     $("prefer").textContent = window.JHDrive.allowedEmails().join(" 或 ");
-    $("login").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
+    $("login").addEventListener("click", function () {
+      let hint = "";
+      try { hint = localStorage.getItem("jh_email") || ""; } catch (e) { hint = ""; }
+      if (hint && window.JHDrive.isAllowed(hint)) onLogin({ prompt: "", hint: hint });
+      else onLogin({ prompt: "select_account" });
+    });
     $("logout").addEventListener("click", onLogout);
     $("switch").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
     $("reload").addEventListener("click", reload);
@@ -929,18 +944,6 @@
     try { await window.JHDrive.init(); }
     catch (err) {
       $("gate-msg").textContent = err.message || "Google 登入還沒準備好";
-    }
-    let hint = "";
-    try { hint = localStorage.getItem("jh_email") || ""; } catch (e) { hint = ""; }
-    if (hint && window.JHDrive.isAllowed(hint)) {
-      $("gate-msg").textContent = "正在連上上次的 Google 帳號…";
-      try {
-        const acc = await window.JHDrive.login({ prompt: "", hint: hint });
-        $("gate-msg").textContent = "";
-        await enterApp(acc);
-      } catch (e) {
-        $("gate-msg").textContent = "";
-      }
     }
   }
 
