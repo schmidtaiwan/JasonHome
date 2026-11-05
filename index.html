@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=15">
+  <link rel="stylesheet" href="app.css?v=16">
 </head>
 <body>
   <section id="gate" class="gate">
@@ -71,6 +71,10 @@
       <p id="empty" class="empty" hidden>還沒有單據。用下方「拍照」或「相簿」，點分類後就存進雲端硬碟。</p>
       <p class="fine">檔案在雲端硬碟的 JasonHome 資料夾。清單若和雲端不一致，可<button id="rebuild" class="link" type="button">從雲端重建</button>。</p>
     </main>
+    <p id="upload-status" class="upload-status" hidden>
+      <span id="upload-text">正在背景上傳</span>
+      <button id="upload-retry" type="button" hidden>重試</button>
+    </p>
     <div class="dock">
       <button id="shoot" class="primary shoot" type="button">拍照</button>
       <button id="album-btn" class="secondary album" type="button">相簿</button>
@@ -189,10 +193,10 @@
   <input id="pdf" class="file" type="file" accept="application/pdf,.pdf" multiple>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="google_config.js?v=15" defer></script>
-  <script src="classify.js?v=15" defer></script>
-  <script src="drive.js?v=15" defer></script>
-  <script src="music.js?v=15" defer></script>
-  <script src="app.js?v=15" defer></script>
+  <script src="google_config.js?v=16" defer></script>
+  <script src="classify.js?v=16" defer></script>
+  <script src="drive.js?v=16" defer></script>
+  <script src="music.js?v=16" defer></script>
+  <script src="app.js?v=16" defer></script>
 </body>
 </html>

@@ -466,6 +466,35 @@ button:active { transform: translateY(1px); }
 .dock .album { flex: 1.15; }
 .dock .pdfbtn { flex: 0.7; }
 
+.upload-status {
+  position: fixed;
+  z-index: 16;
+  left: 50%;
+  bottom: calc(78px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(488px, calc(100% - 24px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--ink);
+  color: #fffaf2;
+  font-weight: 700;
+}
+
+.upload-status button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: #fffaf2;
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .select-bar {
   align-items: center;
 }

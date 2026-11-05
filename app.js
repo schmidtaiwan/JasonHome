@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 15;
+  const PAGE_BUILD = 16;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -22,7 +22,12 @@
 
   let toastTimer = 0;
   let deleteGen = 0;
+  let uploadGen = 0;
+  let uploadRunning = false;
+  let uploadLeft = 0;
   const pendingDelete = new Set();
+  const uploadQueue = [];
+  const uploadFail = [];
   let ignoreClickUntil = 0;
   let cardHoldTimer = 0;
 
@@ -423,7 +428,6 @@
   }
 
   function draftToItem(draft) {
-    readFormInto(draft);
     if (!draft.category) throw new Error("請先點一個分類");
     if (!draft.date) draft.date = todayIso();
     const snippet = String(draft.text || "").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -446,76 +450,120 @@
     };
   }
 
-  async function saveDraft(draft) {
+  function takeDraft(draft) {
     const item = draftToItem(draft);
-    const result = await window.JHDrive.uploadNew(item, draft.store, draft.thumb);
-    rememberItems(result.items);
-    draft.saved = true;
-    return result.item;
+    if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+    draft.previewUrl = "";
+    return {
+      gen: uploadGen,
+      item: item,
+      store: draft.store,
+      thumb: draft.thumb
+    };
   }
 
-  async function onSaveOne() {
+  function paintUpload() {
+    const bar = $("upload-status");
+    if (!bar) return;
+    if (uploadLeft > 0) {
+      bar.hidden = false;
+      $("upload-text").textContent = "正在背景上傳，剩下 " + uploadLeft + " 張";
+      $("upload-retry").hidden = true;
+      return;
+    }
+    if (uploadFail.length) {
+      bar.hidden = false;
+      $("upload-text").textContent = uploadFail.length + " 張沒存進雲端";
+      $("upload-retry").hidden = false;
+      return;
+    }
+    bar.hidden = true;
+  }
+
+  function enqueueUploads(jobs) {
+    if (!jobs.length) return;
+    jobs.forEach(function (job) { uploadQueue.push(job); });
+    uploadLeft += jobs.length;
+    paintUpload();
+    toast(jobs.length > 1 ? "正在背景上傳 " + jobs.length + " 張…" : "正在背景上傳…");
+    pumpUploads();
+  }
+
+  function retryUploads() {
+    const jobs = uploadFail.splice(0, uploadFail.length);
+    jobs.forEach(function (job) { job.gen = uploadGen; });
+    enqueueUploads(jobs);
+  }
+
+  async function pumpUploads() {
+    if (uploadRunning) return;
+    uploadRunning = true;
+    let ok = 0;
+    let last = null;
+    while (uploadQueue.length && uploadGen === uploadQueue[0].gen) {
+      const job = uploadQueue.shift();
+      paintUpload();
+      try {
+        const result = await window.JHDrive.uploadNew(job.item, job.store, job.thumb);
+        if (job.gen !== uploadGen) break;
+        if (job.thumb && result.item && result.item.thumbId) {
+          state.thumbs.set(result.item.thumbId, URL.createObjectURL(job.thumb));
+        }
+        rememberItems(result.items);
+        render();
+        ok += 1;
+        last = result.item;
+        uploadLeft -= 1;
+      } catch (err) {
+        console.error(err);
+        if (job.gen !== uploadGen) break;
+        job.err = err;
+        uploadFail.push(job);
+        uploadLeft -= 1;
+      }
+      paintUpload();
+    }
+    uploadRunning = false;
+    if (uploadQueue.length && uploadQueue[0].gen === uploadGen) pumpUploads();
+    if (uploadQueue.length) return;
+    if (!uploadLeft && ok && !uploadFail.length && last) {
+      toast(ok > 1 ? "已存入 " + ok + " 張" : ("已存到雲端：" + (last.category || "") + (last.vendor ? " · " + last.vendor : "")));
+    } else if (!uploadLeft && uploadFail.length) {
+      const err = uploadFail[uploadFail.length - 1].err;
+      toast((err && err.message) || (uploadFail.length + " 張沒存進雲端"));
+    }
+  }
+
+  function onSaveOne() {
     const draft = currentDraft();
-    if (!draft || state.busy) return;
+    if (!draft) return;
     readFormInto(draft);
     if (!draft.category) {
       toast("請先點一個分類");
       return;
     }
-    state.busy = true;
-    $("save-one").textContent = "上傳中…";
-    try {
-      const item = await saveDraft(draft);
-      toast("已存到雲端：" + item.category + (item.vendor ? " · " + item.vendor : ""));
-      if (navigator.vibrate) navigator.vibrate(12);
-      if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-      state.queue.splice(state.index, 1);
-      if (!state.queue.length) {
-        closeSheet(true);
-      } else {
-        if (state.index >= state.queue.length) state.index = state.queue.length - 1;
-        fillForm(currentDraft());
-      }
-      render();
-    } catch (err) {
-      console.error(err);
-      toast(err.message || "上傳失敗");
-    } finally {
-      state.busy = false;
-      $("save-one").textContent = "存入雲端";
+    const job = takeDraft(draft);
+    state.queue.splice(state.index, 1);
+    if (!state.queue.length) closeSheet(true);
+    else {
+      if (state.index >= state.queue.length) state.index = state.queue.length - 1;
+      fillForm(currentDraft());
     }
+    enqueueUploads([job]);
   }
 
-  async function onSaveAll() {
-    if (state.busy || state.queue.length < 2) return;
+  function onSaveAll() {
+    if (state.queue.length < 2) return;
     const shown = currentDraft();
     if (shown) readFormInto(shown);
     if (state.queue.some(function (d) { return !d.category; })) {
       toast("每一張都要先點分類");
       return;
     }
-    state.busy = true;
-    try {
-      const pending = state.queue.slice();
-      for (let i = 0; i < pending.length; i++) {
-        $("save-all").textContent = "上傳 " + (i + 1) + "/" + pending.length + "…";
-        await saveDraft(pending[i]);
-        if (pending[i].previewUrl) URL.revokeObjectURL(pending[i].previewUrl);
-      }
-      toast("已存入 " + pending.length + " 張");
-      closeSheet(true);
-      render();
-    } catch (err) {
-      console.error(err);
-      toast(err.message || "上傳失敗");
-      state.queue = state.queue.filter(function (d) { return !d.saved; });
-      state.index = 0;
-      if (state.queue.length) fillForm(currentDraft());
-      render();
-    } finally {
-      state.busy = false;
-      $("save-all").textContent = "全部存入";
-    }
+    const jobs = state.queue.map(takeDraft);
+    state.queue = [];
+    closeSheet(true);
+    enqueueUploads(jobs);
   }
 
   function renderFilters() {
@@ -924,10 +972,15 @@
     signedIn = acc;
     try { localStorage.setItem("jh_email", email); } catch (e) { /* 忽略 */ }
     if (prev && prev !== email) {
-      state.items = [];
-      pendingDelete.clear();
-      deleteGen += 1;
-      catalogTask = null;
+    state.items = [];
+    pendingDelete.clear();
+    deleteGen += 1;
+    uploadGen += 1;
+    uploadQueue.length = 0;
+    uploadFail.length = 0;
+    uploadLeft = 0;
+    paintUpload();
+    catalogTask = null;
     }
     if (!window.JHDrive.isAllowed(email)) {
       openUpload();
@@ -1009,6 +1062,11 @@
     state.items = [];
     pendingDelete.clear();
     deleteGen += 1;
+    uploadGen += 1;
+    uploadQueue.length = 0;
+    uploadFail.length = 0;
+    uploadLeft = 0;
+    paintUpload();
     state.selecting = false;
     state.selected = new Set();
     paintSelect();
@@ -1272,6 +1330,7 @@
     });
     $("save-one").addEventListener("click", onSaveOne);
     $("save-all").addEventListener("click", onSaveAll);
+    $("upload-retry").addEventListener("click", retryUploads);
     $("f-today").addEventListener("click", function () {
       const draft = currentDraft();
       if (!draft) return;
