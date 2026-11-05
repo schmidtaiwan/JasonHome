@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=13">
+  <link rel="stylesheet" href="app.css?v=14">
 </head>
 <body>
   <section id="gate" class="gate">
@@ -75,6 +75,11 @@
       <button id="shoot" class="primary shoot" type="button">拍照</button>
       <button id="album-btn" class="secondary album" type="button">相簿</button>
       <button id="pdf-btn" class="ghost pdfbtn" type="button">PDF</button>
+    </div>
+    <div id="select-bar" class="dock select-bar" hidden>
+      <button id="select-cancel" class="ghost" type="button">取消</button>
+      <span id="select-count">已選 0 張</span>
+      <button id="select-delete" class="danger" type="button">刪除</button>
     </div>
   </div>
 
@@ -184,10 +189,10 @@
   <input id="pdf" class="file" type="file" accept="application/pdf,.pdf" multiple>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="google_config.js?v=13" defer></script>
-  <script src="classify.js?v=13" defer></script>
-  <script src="drive.js?v=13" defer></script>
-  <script src="music.js?v=13" defer></script>
-  <script src="app.js?v=13" defer></script>
+  <script src="google_config.js?v=14" defer></script>
+  <script src="classify.js?v=14" defer></script>
+  <script src="drive.js?v=14" defer></script>
+  <script src="music.js?v=14" defer></script>
+  <script src="app.js?v=14" defer></script>
 </body>
 </html>

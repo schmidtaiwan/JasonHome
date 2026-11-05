@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 13;
+  const PAGE_BUILD = 14;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -15,10 +15,14 @@
     detailId: "",
     fullUrl: "",
     fileUrl: "",
-    busy: false
+    busy: false,
+    selecting: false,
+    selected: new Set()
   };
 
   let toastTimer = 0;
+  let ignoreClickUntil = 0;
+  let cardHoldTimer = 0;
 
   function toast(text) {
     const el = $("toast");
@@ -569,8 +573,9 @@
       }
       const card = document.createElement("button");
       card.type = "button";
-      card.className = "card";
+      card.className = "card" + (state.selecting && state.selected.has(item.id) ? " selected" : "");
       card.dataset.id = item.id;
+      card.setAttribute("aria-pressed", state.selecting && state.selected.has(item.id) ? "true" : "false");
       const img = document.createElement("img");
       img.className = "thumb";
       img.alt = "";
@@ -619,14 +624,77 @@
         body.appendChild(review);
       }
       card.append(img, body);
+      if (state.selecting && state.selected.has(item.id)) {
+        const tick = document.createElement("span");
+        tick.className = "tick";
+        tick.textContent = "✓";
+        card.appendChild(tick);
+      }
       host.appendChild(card);
     });
     observeThumbs();
   }
 
   function render() {
+    if (state.selecting) {
+      const ids = {};
+      state.items.forEach(function (item) { ids[item.id] = true; });
+      state.selected.forEach(function (id) {
+        if (!ids[id]) state.selected.delete(id);
+      });
+      if (!state.selected.size) state.selecting = false;
+    }
     renderFilters();
     renderList();
+    paintSelect();
+  }
+
+  function paintSelect() {
+    const bar = $("select-bar");
+    const on = state.selecting;
+    bar.hidden = !on;
+    document.querySelector(".dock").hidden = on;
+    $("select-count").textContent = "已選 " + state.selected.size + " 張";
+    $("select-delete").disabled = !state.selected.size;
+  }
+
+  function endSelect() {
+    state.selecting = false;
+    state.selected = new Set();
+    render();
+  }
+
+  function toggleSelect(id, forceOn) {
+    if (!state.selecting) {
+      state.selecting = true;
+      state.selected = new Set();
+    }
+    if (forceOn) state.selected.add(id);
+    else if (state.selected.has(id)) state.selected.delete(id);
+    else state.selected.add(id);
+    if (!state.selected.size) endSelect();
+    else render();
+  }
+
+  async function onSelectDelete() {
+    const batch = state.items.filter(function (item) { return state.selected.has(item.id); });
+    if (!batch.length || state.busy) return;
+    const n = batch.length;
+    if (!confirm("從雲端硬碟刪除這 " + n + " 張單據？檔案會進垃圾桶。")) return;
+    state.busy = true;
+    $("select-delete").textContent = "刪除中…";
+    try {
+      state.items = await window.JHDrive.removeItems(batch);
+      toast("已刪除 " + n + " 張");
+      endSelect();
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "刪除失敗");
+      render();
+    } finally {
+      state.busy = false;
+      $("select-delete").textContent = "刪除";
+    }
   }
 
   let thumbObserver = null;
@@ -925,6 +993,9 @@
     window.JHDrive.logout();
     try { localStorage.removeItem("jh_email"); } catch (e) { /* 忽略 */ }
     state.items = [];
+    state.selecting = false;
+    state.selected = new Set();
+    paintSelect();
     signedIn = null;
     catalogTask = null;
     closeDetail();
@@ -1082,6 +1153,42 @@
     }
   }
 
+  function bindCardHold() {
+    const list = $("list");
+    let startX = 0;
+    let startY = 0;
+    let heldId = "";
+
+    function clearHold() {
+      clearTimeout(cardHoldTimer);
+      cardHoldTimer = 0;
+    }
+
+    list.addEventListener("pointerdown", function (ev) {
+      const card = ev.target.closest(".card");
+      if (!card || (ev.button != null && ev.button !== 0)) return;
+      heldId = card.dataset.id;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      clearHold();
+      cardHoldTimer = setTimeout(function () {
+        cardHoldTimer = 0;
+        ignoreClickUntil = Date.now() + 500;
+        toggleSelect(heldId, true);
+        if (navigator.vibrate) navigator.vibrate(12);
+      }, 450);
+    });
+    list.addEventListener("pointermove", function (ev) {
+      if (!cardHoldTimer) return;
+      if (Math.abs(ev.clientX - startX) > 12 || Math.abs(ev.clientY - startY) > 12) clearHold();
+    });
+    list.addEventListener("pointerup", clearHold);
+    list.addEventListener("pointercancel", clearHold);
+    list.addEventListener("contextmenu", function (ev) {
+      if (ev.target.closest(".card")) ev.preventDefault();
+    });
+  }
+
   function showVersion() {
     const text = "版次 " + PAGE_BUILD + " (" + PAGE_DATE + ")";
     $("pageVer").textContent = text;
@@ -1134,8 +1241,13 @@
     $("list").addEventListener("click", function (ev) {
       const card = ev.target.closest(".card");
       if (!card) return;
-      openDetail(card.dataset.id);
+      if (Date.now() < ignoreClickUntil) return;
+      if (state.selecting) toggleSelect(card.dataset.id);
+      else openDetail(card.dataset.id);
     });
+    bindCardHold();
+    $("select-cancel").addEventListener("click", endSelect);
+    $("select-delete").addEventListener("click", onSelectDelete);
     bindPhotoSwipe();
     $("sheet-close").addEventListener("click", function () { closeSheet(false); });
     $("sheet-next").addEventListener("click", function () {
@@ -1180,6 +1292,7 @@
       if (!$("detail").hidden) closeDetail();
       else if (!$("settings").hidden) closeSettings();
       else if (!$("sheet").hidden) closeSheet(false);
+      else if (state.selecting) endSelect();
     });
     bindPickCats();
   }

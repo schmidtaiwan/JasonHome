@@ -599,11 +599,22 @@
   }
 
   async function removeItem(item) {
-    await trash(item.fileId);
-    await trash(item.thumbId);
+    return removeItems([item]);
+  }
+
+  async function removeItems(list) {
+    const drop = {};
+    const batch = list || [];
+    for (let i = 0; i < batch.length; i++) {
+      const item = batch[i];
+      if (!item || !item.id || drop[item.id]) continue;
+      drop[item.id] = true;
+      await trash(item.fileId);
+      await trash(item.thumbId);
+    }
     const items = await withCatalog(async function () {
       const cat = await readCatalog();
-      const next = cat.items.filter(function (x) { return x.id !== item.id; });
+      const next = cat.items.filter(function (x) { return !drop[x.id]; });
       await writeCatalog(cat.fileId, next);
       return next;
     });
@@ -689,6 +700,7 @@
     uploadNew: uploadNew,
     updateMeta: updateMeta,
     removeItem: removeItem,
+    removeItems: removeItems,
     download: download,
     rebuild: rebuild,
     explainAuthError: explainAuthError,

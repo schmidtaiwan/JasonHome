@@ -304,6 +304,7 @@ button:active { transform: translateY(1px); }
 }
 
 .card {
+  position: relative;
   display: grid;
   grid-template-columns: 92px 1fr;
   gap: 12px;
@@ -315,6 +316,30 @@ button:active { transform: translateY(1px); }
   border: 1px solid var(--line);
   border-radius: 18px;
   box-shadow: var(--shadow);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.card.selected {
+  border-color: var(--seal);
+  box-shadow: inset 0 0 0 2px var(--seal);
+}
+
+.tick {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--seal);
+  color: #fffaf2;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 28px;
+  text-align: center;
 }
 
 .thumb, .thumb-fallback {
@@ -440,6 +465,16 @@ button:active { transform: translateY(1px); }
 .dock .shoot { flex: 1.15; }
 .dock .album { flex: 1.15; }
 .dock .pdfbtn { flex: 0.7; }
+
+.select-bar {
+  align-items: center;
+}
+
+.select-bar span {
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+}
 
 .mismatch {
   margin: 12px 16px;
