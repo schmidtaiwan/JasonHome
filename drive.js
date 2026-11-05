@@ -604,14 +604,18 @@
 
   async function removeItems(list) {
     const drop = {};
-    const batch = list || [];
-    for (let i = 0; i < batch.length; i++) {
-      const item = batch[i];
-      if (!item || !item.id || drop[item.id]) continue;
+    const batch = [];
+    (list || []).forEach(function (item) {
+      if (!item || !item.id || drop[item.id]) return;
       drop[item.id] = true;
-      await trash(item.fileId);
-      await trash(item.thumbId);
-    }
+      batch.push(item);
+    });
+    const ids = [];
+    batch.forEach(function (item) {
+      if (item.fileId) ids.push(item.fileId);
+      if (item.thumbId) ids.push(item.thumbId);
+    });
+    await trashMany(ids);
     const items = await withCatalog(async function () {
       const cat = await readCatalog();
       const next = cat.items.filter(function (x) { return !drop[x.id]; });
@@ -619,6 +623,60 @@
       return next;
     });
     return items;
+  }
+
+  async function trashMany(ids) {
+    const unique = [];
+    const seen = {};
+    (ids || []).forEach(function (id) {
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      unique.push(id);
+    });
+    for (let i = 0; i < unique.length; i += 80) {
+      const slice = unique.slice(i, i + 80);
+      try {
+        await trashBatch(slice);
+      } catch (err) {
+        console.error(err);
+        await Promise.all(slice.map(trash));
+      }
+    }
+  }
+
+  async function trashBatch(ids) {
+    const boundary = "jhbatch_" + Date.now().toString(16) + Math.random().toString(16).slice(2);
+    let body = "";
+    ids.forEach(function (id, index) {
+      body += "--" + boundary + "\r\n";
+      body += "Content-Type: application/http\r\n";
+      body += "Content-ID: <item" + index + ">\r\n\r\n";
+      body += "PATCH /drive/v3/files/" + encodeURIComponent(id) + "?supportsAllDrives=true HTTP/1.1\r\n";
+      body += "Content-Type: application/json\r\n\r\n";
+      body += "{\"trashed\":true}\r\n";
+    });
+    body += "--" + boundary + "--";
+    const res = await driveFetch("https://www.googleapis.com/batch/drive/v3", {
+      method: "POST",
+      headers: { "Content-Type": "multipart/mixed; boundary=" + boundary },
+      body: body
+    });
+    if (!res.ok) await readErr(res, "刪除失敗");
+    const text = await res.text();
+    const type = res.headers.get("Content-Type") || "";
+    const found = /boundary=("[^"]+"|[^;\s]+)/i.exec(type);
+    const edge = found ? found[1].replace(/"/g, "") : boundary;
+    const parts = text.split("--" + edge);
+    let saw = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const http = parts[i].match(/HTTP\/1\.[01] (\d{3})/);
+      if (!http) continue;
+      saw += 1;
+      const status = Number(http[1]);
+      if (status === 404 || (status >= 200 && status < 300)) continue;
+      throw new Error("刪除失敗（" + status + "）");
+    }
+    if (saw < ids.length) throw new Error("刪除失敗");
   }
 
   async function trash(id) {

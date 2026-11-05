@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 14;
+  const PAGE_BUILD = 15;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -21,6 +21,8 @@
   };
 
   let toastTimer = 0;
+  let deleteGen = 0;
+  const pendingDelete = new Set();
   let ignoreClickUntil = 0;
   let cardHoldTimer = 0;
 
@@ -447,7 +449,7 @@
   async function saveDraft(draft) {
     const item = draftToItem(draft);
     const result = await window.JHDrive.uploadNew(item, draft.store, draft.thumb);
-    state.items = result.items;
+    rememberItems(result.items);
     draft.saved = true;
     return result.item;
   }
@@ -658,6 +660,37 @@
     $("select-delete").disabled = !state.selected.size;
   }
 
+  function rememberItems(items) {
+    state.items = (items || []).filter(function (item) {
+      return item && !pendingDelete.has(item.id);
+    });
+  }
+
+  function deleteInBackground(batch) {
+    const gen = deleteGen;
+    const n = batch.length;
+    const snapshot = batch.map(function (item) { return Object.assign({}, item); });
+    snapshot.forEach(function (item) { pendingDelete.add(item.id); });
+    state.items = state.items.filter(function (item) { return !pendingDelete.has(item.id); });
+    toast(n > 1 ? "正在背景刪除 " + n + " 張…" : "正在背景刪除…");
+    window.JHDrive.removeItems(snapshot).then(function () {
+      if (gen !== deleteGen) return;
+      snapshot.forEach(function (item) { pendingDelete.delete(item.id); });
+      toast("已刪除 " + n + " 張");
+    }).catch(function (err) {
+      console.error(err);
+      if (gen !== deleteGen) return;
+      snapshot.forEach(function (item) { pendingDelete.delete(item.id); });
+      const have = {};
+      state.items.forEach(function (item) { have[item.id] = true; });
+      snapshot.forEach(function (item) {
+        if (!have[item.id]) state.items.push(item);
+      });
+      render();
+      toast((err && err.message) || "刪除失敗，已放回清單");
+    });
+  }
+
   function endSelect() {
     state.selecting = false;
     state.selected = new Set();
@@ -676,25 +709,13 @@
     else render();
   }
 
-  async function onSelectDelete() {
+  function onSelectDelete() {
     const batch = state.items.filter(function (item) { return state.selected.has(item.id); });
     if (!batch.length || state.busy) return;
     const n = batch.length;
     if (!confirm("從雲端硬碟刪除這 " + n + " 張單據？檔案會進垃圾桶。")) return;
-    state.busy = true;
-    $("select-delete").textContent = "刪除中…";
-    try {
-      state.items = await window.JHDrive.removeItems(batch);
-      toast("已刪除 " + n + " 張");
-      endSelect();
-    } catch (err) {
-      console.error(err);
-      toast(err.message || "刪除失敗");
-      render();
-    } finally {
-      state.busy = false;
-      $("select-delete").textContent = "刪除";
-    }
+    deleteInBackground(batch);
+    endSelect();
   }
 
   let thumbObserver = null;
@@ -846,7 +867,7 @@
     $("detail-save").textContent = "儲存中…";
     try {
       const result = await window.JHDrive.updateMeta(next);
-      state.items = result.items;
+      rememberItems(result.items);
       toast("已更新");
       render();
       closeDetail();
@@ -859,22 +880,13 @@
     }
   }
 
-  async function onDetailDelete() {
+  function onDetailDelete() {
     const item = state.items.find(function (x) { return x.id === state.detailId; });
     if (!item) return;
     if (!confirm("從雲端硬碟刪除這張單據？檔案會進垃圾桶。")) return;
-    state.busy = true;
-    try {
-      state.items = await window.JHDrive.removeItem(item);
-      toast("已刪除");
-      closeDetail();
-      render();
-    } catch (err) {
-      console.error(err);
-      toast(err.message || "刪除失敗");
-    } finally {
-      state.busy = false;
-    }
+    deleteInBackground([item]);
+    closeDetail();
+    render();
   }
 
   function showMismatch(email) {
@@ -913,6 +925,8 @@
     try { localStorage.setItem("jh_email", email); } catch (e) { /* 忽略 */ }
     if (prev && prev !== email) {
       state.items = [];
+      pendingDelete.clear();
+      deleteGen += 1;
       catalogTask = null;
     }
     if (!window.JHDrive.isAllowed(email)) {
@@ -947,7 +961,7 @@
     $("empty").hidden = false;
     try {
       const cat = await window.JHDrive.readCatalog();
-      state.items = cat.items || [];
+      rememberItems(cat.items);
       applyCategories(cat.categories);
       $("empty").classList.remove("warn");
       $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，點分類後就存進雲端硬碟。";
@@ -993,6 +1007,8 @@
     window.JHDrive.logout();
     try { localStorage.removeItem("jh_email"); } catch (e) { /* 忽略 */ }
     state.items = [];
+    pendingDelete.clear();
+    deleteGen += 1;
     state.selecting = false;
     state.selected = new Set();
     paintSelect();
@@ -1009,7 +1025,7 @@
     if ($("mismatch").hidden === false) return;
     try {
       const cat = await window.JHDrive.readCatalog();
-      state.items = cat.items || [];
+      rememberItems(cat.items);
       applyCategories(cat.categories);
       render();
       toast("已更新");
@@ -1022,7 +1038,7 @@
     if (!confirm("用雲端硬碟裡的檔案重做清單。較長的備註可能只留前段，照片不會刪除。")) return;
     toast("正在重建…");
     try {
-      state.items = await window.JHDrive.rebuild();
+      rememberItems(await window.JHDrive.rebuild());
       applyCategories(window.JHDrive.categories());
       render();
       toast("清單已重建，共 " + state.items.length + " 筆");
