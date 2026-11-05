@@ -117,7 +117,7 @@
   ];
 
   function matchKeyword(text) {
-    const src = String(text || "");
+    const src = String(text || "").replace(/税/g, "稅");
     for (let i = 0; i < KEYWORDS.length; i++) {
       if (src.indexOf(KEYWORDS[i][0]) !== -1) {
         return { keyword: KEYWORDS[i][0], category: KEYWORDS[i][1], score: 6 };

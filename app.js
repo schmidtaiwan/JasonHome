@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 3;
+  const PAGE_BUILD = 4;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -21,6 +21,8 @@
   };
 
   let toastTimer = 0;
+  let workerPromise = null;
+  let ocrChain = Promise.resolve();
 
   function toast(text) {
     const el = $("toast");
@@ -336,40 +338,128 @@
     }
   }
 
+  function setDraftStatus(draft, text) {
+    draft.status = text;
+    if (currentDraft() === draft) $("sheet-status").textContent = text;
+  }
+
+  function hasHit(fields) {
+    return !!(fields && (fields.keyword || fields.category));
+  }
+
   async function readText(blob) {
-    if (typeof TextDetector !== "function") {
-      const err = new Error("no-detector");
-      throw err;
-    }
+    if (typeof TextDetector !== "function") return "";
     const bmp = await createImageBitmap(blob);
     try {
       const detector = new TextDetector();
       const blocks = await detector.detect(bmp);
       return (blocks || []).map(function (b) { return b.rawValue || ""; }).join("\n");
+    } catch (e) {
+      return "";
     } finally {
       if (bmp.close) bmp.close();
     }
   }
 
-  async function runOcr(draft) {
+  function onOcrLog(m) {
+    const draft = currentDraft();
+    if (!draft || !m) return;
+    if (m.status === "loading language traineddata") {
+      setDraftStatus(draft, "第一次準備辨識 " + Math.round((m.progress || 0) * 100) + "%");
+    }
+  }
+
+  function fastWorker() {
+    if (workerPromise) return workerPromise;
+    workerPromise = (async function () {
+      await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
+      const base = {
+        workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+        langPath: "https://tessdata.projectnaptha.com/4.0.0_fast",
+        logger: onOcrLog
+      };
+      try {
+        return await window.Tesseract.createWorker("chi_tra", 1, Object.assign({
+          corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-simd-lstm.wasm.js"
+        }, base));
+      } catch (e) {
+        return await window.Tesseract.createWorker("chi_tra", 1, Object.assign({
+          corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-lstm.wasm.js"
+        }, base));
+      }
+    })();
+    workerPromise.catch(function () { workerPromise = null; });
+    return workerPromise;
+  }
+
+  async function focusBlob(blob, cropRatio, maxW) {
+    const bmp = await createImageBitmap(blob);
+    try {
+      const sw = bmp.width;
+      const sh = Math.max(1, Math.round(bmp.height * cropRatio));
+      const scale = Math.min(1, maxW / sw);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(sw * scale));
+      canvas.height = Math.max(1, Math.round(sh * scale));
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bmp, 0, 0, sw, sh, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        let y = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] - 128) * 1.7 + 128;
+        if (y < 0) y = 0;
+        if (y > 255) y = 255;
+        d[i] = d[i + 1] = d[i + 2] = y;
+      }
+      ctx.putImageData(img, 0, 0);
+      return await canvasBlob(canvas, 0.85);
+    } finally {
+      if (bmp.close) bmp.close();
+    }
+  }
+
+  async function recognizeFast(blob) {
+    const worker = await fastWorker();
+    const result = await worker.recognize(blob);
+    return (result && result.data && result.data.text) || "";
+  }
+
+  async function runOcrNow(draft) {
     if (!draft.ocr) return;
     const gen = (draft.ocrGen || 0) + 1;
     draft.ocrGen = gen;
-    draft.status = "正在看關鍵字…";
-    if (currentDraft() === draft) $("sheet-status").textContent = draft.status;
+    setDraftStatus(draft, "正在看關鍵字…");
+    let text = "";
     try {
-      const text = await readText(draft.ocr);
+      text = await readText(draft.ocr);
       if (draft.ocrGen !== gen) return;
+      let fields = window.JHClassify.extractFields(text);
+      if (!hasHit(fields)) {
+        setDraftStatus(draft, "正在讀單據上的字…");
+        const page = await focusBlob(draft.ocr, 1, 1000);
+        if (draft.ocrGen !== gen) return;
+        const pageText = await recognizeFast(page);
+        if (draft.ocrGen !== gen) return;
+        text = (text ? text + "\n" : "") + pageText;
+        fields = window.JHClassify.extractFields(text);
+      }
       draft.text = String(text || "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 1500);
-      applyOcr(draft, window.JHClassify.extractFields(draft.text));
+      applyOcr(draft, fields);
     } catch (e) {
       if (draft.ocrGen !== gen) return;
+      console.error(e);
       if (!draft.catTouched) draft.needsReview = true;
-      draft.status = e && e.message === "no-detector"
-        ? "請直接點分類（這支瀏覽器無法快速看關鍵字）"
-        : "沒看到關鍵字，請點分類";
+      draft.status = "沒看到關鍵字，請點分類";
     }
     if (currentDraft() === draft) fillForm(draft);
+  }
+
+  function runOcr(draft) {
+    const job = ocrChain.then(function () { return runOcrNow(draft); });
+    ocrChain = job.then(function () {}, function () {});
+    return job;
   }
 
   async function openQueue(fileList) {
@@ -815,6 +905,7 @@
       state.items = cat.items || [];
       $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，選完會自動猜分類，確認後就進雲端硬碟。";
       render();
+      fastWorker().catch(function () {});
     } catch (err) {
       console.error(err);
       toast(err.message || "讀取雲端失敗");
