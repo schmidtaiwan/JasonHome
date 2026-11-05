@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f3ecdf">
+  <meta name="robots" content="noindex">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="家用單據">
+  <title>家用單據</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css?v=1">
+</head>
+<body>
+  <section id="gate" class="gate">
+    <img class="mark" src="icon.svg" alt="">
+    <h1>家用單據</h1>
+    <p class="lede">拍下帳單、稅單、發票或收據，手機會自動判斷分類，再存進你的 Google 雲端硬碟。之後可以用店家、金額或日期找出來，並看到當時的快照。</p>
+    <p class="account-note">請用 <strong id="prefer"></strong> 登入。照片與 PDF 只寫入這個帳號的雲端硬碟，不會進 GitHub。</p>
+    <button id="login" class="primary" type="button">用 Google 登入</button>
+    <p id="gate-ver" class="page-ver">版次 —</p>
+    <p id="gate-msg" class="gate-msg" role="status"></p>
+  </section>
+
+  <div id="app" class="app" hidden>
+    <header class="top">
+      <div class="brand-row">
+        <div class="brand">
+          <img class="mark" src="icon.svg" alt="">
+          <div>
+            <h1>家用單據</h1>
+            <p id="pageVer" class="page-ver">版次 —</p>
+          </div>
+        </div>
+        <div class="tools">
+          <button id="reload" type="button">更新</button>
+          <button id="logout" type="button">登出</button>
+        </div>
+      </div>
+      <p id="who" class="who"></p>
+      <label class="search-wrap">
+        <span class="sr">搜尋</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+        <input id="q" type="search" placeholder="搜尋店家、金額、發票號碼、備註" enterkeyhint="search" autocomplete="off">
+      </label>
+    </header>
+    <div id="filters" class="filters"></div>
+    <div id="mismatch" class="mismatch" hidden>
+      <h2>帳號不對</h2>
+      <p id="mismatch-text"></p>
+      <button id="switch" class="primary" type="button">換帳號</button>
+    </div>
+    <main id="main">
+      <div id="list"></div>
+      <p id="empty" class="empty" hidden>還沒有單據。按下方「拍照」，拍完會自動猜分類，確認後就進雲端硬碟。</p>
+      <p class="fine">檔案在雲端硬碟的 JasonHome 資料夾。清單若和雲端不一致，可<button id="rebuild" class="link" type="button">從雲端重建</button>。</p>
+    </main>
+    <div class="dock">
+      <button id="shoot" class="primary shoot" type="button">拍照</button>
+      <button id="pick" class="secondary pickfile" type="button">相簿／PDF</button>
+    </div>
+  </div>
+
+  <section id="sheet" class="sheet" hidden>
+    <div class="sheet-bar">
+      <button id="sheet-close" class="icon-btn" type="button">關閉</button>
+      <h2 id="sheet-title">上傳</h2>
+      <button id="sheet-next" class="icon-btn" type="button">下一張</button>
+    </div>
+    <div class="stage">
+      <img id="preview" alt="即將上傳的單據">
+      <span id="preview-badge" class="badge" hidden>PDF</span>
+    </div>
+    <p id="sheet-status" class="status-line" role="status"></p>
+    <div class="form">
+      <div id="pick-cat" class="pick"></div>
+      <div class="fields">
+        <label class="field">日期
+          <span class="field-row">
+            <input id="f-date" type="date">
+            <button id="f-today" class="today" type="button">今天</button>
+          </span>
+        </label>
+        <label class="field">店家／單位
+          <input id="f-vendor" type="text" autocomplete="off" enterkeyhint="done">
+        </label>
+        <label class="field">金額
+          <input id="f-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="例如 1280">
+        </label>
+        <label class="field">備註
+          <textarea id="f-note" placeholder="例如 10 月電費"></textarea>
+        </label>
+      </div>
+      <details class="ocr">
+        <summary>辨識到的文字</summary>
+        <pre id="f-ocr"></pre>
+      </details>
+      <div class="actions">
+        <button id="save-one" class="primary" type="button">存入雲端</button>
+        <button id="save-all" class="secondary" type="button" hidden>全部存入</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="detail" class="detail" hidden>
+    <div class="detail-bar">
+      <button id="detail-close" class="icon-btn" type="button">返回</button>
+      <h2>單據</h2>
+      <a id="open-drive" class="icon-btn" target="_blank" rel="noopener">雲端</a>
+    </div>
+    <div class="shot">
+      <img id="shot" alt="">
+    </div>
+    <p id="detail-meta" class="meta-line"></p>
+    <div class="form">
+      <div id="detail-cat" class="pick"></div>
+      <div class="fields">
+        <label class="field">日期
+          <span class="field-row">
+            <input id="d-date" type="date">
+            <button id="d-today" class="today" type="button">今天</button>
+          </span>
+        </label>
+        <label class="field">店家／單位
+          <input id="d-vendor" type="text" autocomplete="off">
+        </label>
+        <label class="field">金額
+          <input id="d-amount" type="text" inputmode="decimal" autocomplete="off">
+        </label>
+        <label class="field">備註
+          <textarea id="d-note"></textarea>
+        </label>
+      </div>
+      <div class="detail-actions">
+        <button id="detail-save" class="primary" type="button">儲存修改</button>
+        <a id="open-file" class="secondary" style="display:flex;align-items:center;justify-content:center;text-decoration:none;" target="_blank" rel="noopener">開啟原檔</a>
+        <button id="detail-del" class="danger" type="button">刪除這張</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" role="status"></div>
+  <input id="cam" class="file" type="file" accept="image/*" capture="environment">
+  <input id="lib" class="file" type="file" accept="image/*,application/pdf,.pdf,.heic,.heif" multiple>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="google_config.js?v=1" defer></script>
+  <script src="classify.js?v=1" defer></script>
+  <script src="drive.js?v=1" defer></script>
+  <script src="app.js?v=1" defer></script>
+</body>
+</html>
