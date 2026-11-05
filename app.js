@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 6;
+  const PAGE_BUILD = 7;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
