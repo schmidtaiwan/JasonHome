@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 10;
+  const PAGE_BUILD = 11;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -760,16 +760,53 @@
     $("who").textContent = email + " · " + window.JHDrive.preferredEmail() + " 的雲端硬碟 / " + window.JHDrive.folderName();
   }
 
-  async function enterApp(acc) {
-    const email = String(acc.email || "").toLowerCase();
+  let signedIn = null;
+  let catalogTask = null;
+
+  function showLogin() {
+    $("gate").hidden = false;
+    $("gate").classList.remove("showing-story");
+    $("login-pane").hidden = false;
+    $("story-pane").hidden = true;
+    $("app").hidden = true;
+  }
+
+  function showStory(acc) {
+    const email = String((acc && acc.email) || "").toLowerCase();
+    const prev = signedIn ? String(signedIn.email || "").toLowerCase() : "";
+    signedIn = acc;
     try { localStorage.setItem("jh_email", email); } catch (e) { /* 忽略 */ }
-    $("gate").hidden = true;
-    $("app").hidden = false;
+    if (prev && prev !== email) {
+      state.items = [];
+      catalogTask = null;
+    }
     if (!window.JHDrive.isAllowed(email)) {
-      showMismatch(acc.email);
+      openUpload();
       return;
     }
-    showMain(acc.email);
+    $("gate").hidden = false;
+    $("gate").classList.add("showing-story");
+    $("login-pane").hidden = true;
+    $("story-pane").hidden = false;
+    $("app").hidden = true;
+    if (!catalogTask) catalogTask = loadCatalog();
+  }
+
+  function openUpload() {
+    if (window.JHMusic) window.JHMusic.start();
+    $("gate").hidden = true;
+    $("app").hidden = false;
+    if (!signedIn) return;
+    const email = String(signedIn.email || "").toLowerCase();
+    if (!window.JHDrive.isAllowed(email)) {
+      showMismatch(signedIn.email);
+      return;
+    }
+    showMain(signedIn.email);
+    if (!catalogTask) catalogTask = loadCatalog();
+  }
+
+  async function loadCatalog() {
     $("empty").classList.remove("warn");
     $("empty").textContent = "正在讀取雲端清單…";
     $("empty").hidden = false;
@@ -781,6 +818,7 @@
       render();
     } catch (err) {
       console.error(err);
+      catalogTask = null;
       const detail = err && err.message ? err.message : "請按右上角「更新」，或從雲端重建。";
       toast(detail);
       $("empty").classList.add("warn");
@@ -790,18 +828,19 @@
   }
 
   async function onLogin(opts) {
+    if (window.JHMusic) window.JHMusic.start();
     $("login").disabled = true;
-    $("gate-msg").textContent = "正在進入…";
+    $("gate-msg").textContent = "正在登入…";
     try {
       const acc = await window.JHDrive.login(opts || { prompt: "select_account" });
       $("gate-msg").textContent = "";
-      await enterApp(acc);
+      showStory(acc);
     } catch (err) {
       if (opts && opts.hint && opts.prompt === "") {
         try {
           const acc = await window.JHDrive.login({ prompt: "select_account" });
           $("gate-msg").textContent = "";
-          await enterApp(acc);
+          showStory(acc);
           return;
         } catch (err2) {
           err = err2;
@@ -818,10 +857,11 @@
     window.JHDrive.logout();
     try { localStorage.removeItem("jh_email"); } catch (e) { /* 忽略 */ }
     state.items = [];
+    signedIn = null;
+    catalogTask = null;
     closeDetail();
     closeSheet(true);
-    $("app").hidden = true;
-    $("gate").hidden = false;
+    showLogin();
     $("gate-msg").textContent = "";
   }
 
@@ -854,6 +894,7 @@
     const text = "版次 " + PAGE_BUILD + " (" + PAGE_DATE + ")";
     $("pageVer").textContent = text;
     $("gate-ver").textContent = text;
+    $("story-ver").textContent = text;
   }
 
   function bind() {
@@ -865,6 +906,7 @@
       if (hint && window.JHDrive.isAllowed(hint)) onLogin({ prompt: "", hint: hint });
       else onLogin({ prompt: "select_account" });
     });
+    $("enter").addEventListener("click", openUpload);
     $("logout").addEventListener("click", onLogout);
     $("switch").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
     $("reload").addEventListener("click", reload);
@@ -941,9 +983,25 @@
 
   async function boot() {
     bind();
+    document.addEventListener("pointerdown", function () {
+      if (window.JHMusic) window.JHMusic.start();
+    });
     try { await window.JHDrive.init(); }
     catch (err) {
       $("gate-msg").textContent = err.message || "Google 登入還沒準備好";
+      return;
+    }
+    let hint = "";
+    try { hint = localStorage.getItem("jh_email") || ""; } catch (e) { hint = ""; }
+    if (hint && window.JHDrive.isAllowed(hint)) {
+      $("gate-msg").textContent = "正在登入…";
+      try {
+        const acc = await window.JHDrive.login({ prompt: "", hint: hint });
+        $("gate-msg").textContent = "";
+        showStory(acc);
+      } catch (e) {
+        $("gate-msg").textContent = "";
+      }
     }
   }
 
