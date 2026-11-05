@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 1;
+  const PAGE_BUILD = 2;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -817,7 +817,7 @@
     try {
       const cat = await window.JHDrive.readCatalog();
       state.items = cat.items || [];
-      $("empty").textContent = "還沒有單據。按下方「拍照」，拍完會自動猜分類，確認後就進雲端硬碟。";
+      $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，選完會自動猜分類，確認後就進雲端硬碟。";
       render();
     } catch (err) {
       console.error(err);
@@ -893,14 +893,19 @@
     $("reload").addEventListener("click", reload);
     $("rebuild").addEventListener("click", onRebuild);
     $("shoot").addEventListener("click", function () { $("cam").click(); });
-    $("pick").addEventListener("click", function () { $("lib").click(); });
+    $("album-btn").addEventListener("click", function () { $("album").click(); });
+    $("pdf-btn").addEventListener("click", function () { $("pdf").click(); });
     $("cam").addEventListener("change", function () {
       openQueue($("cam").files);
       $("cam").value = "";
     });
-    $("lib").addEventListener("change", function () {
-      openQueue($("lib").files);
-      $("lib").value = "";
+    $("album").addEventListener("change", function () {
+      openQueue($("album").files);
+      $("album").value = "";
+    });
+    $("pdf").addEventListener("change", function () {
+      openQueue($("pdf").files);
+      $("pdf").value = "";
     });
     $("q").addEventListener("input", function () {
       state.q = $("q").value || "";
