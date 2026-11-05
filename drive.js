@@ -12,6 +12,7 @@
   let inflight = null;
   let account = null;
   let catalogId = "";
+  let extraCategories = [];
   let folderLock = Promise.resolve();
   let catalogLock = Promise.resolve();
   const folderCache = new Map();
@@ -330,6 +331,7 @@
     exp = 0;
     account = null;
     catalogId = "";
+    extraCategories = [];
     folderCache.clear();
     const prompt = opts.prompt != null ? opts.prompt : "select_account";
     await requestToken(prompt, opts.hint || "");
@@ -342,6 +344,7 @@
     exp = 0;
     account = null;
     catalogId = "";
+    extraCategories = [];
     folderCache.clear();
     if (old && global.google && google.accounts && google.accounts.oauth2) {
       try { google.accounts.oauth2.revoke(old, function () {}); } catch (e) { /* 忽略 */ }
@@ -380,7 +383,7 @@
     return {
       jhRole: role,
       jhId: prop(item.id, 60),
-      jhCat: prop(item.category, 20),
+      jhCat: prop(item.category, 48),
       jhDate: prop(item.date, 20),
       jhVendor: prop(item.vendor, 72),
       jhAmount: item.amount == null || item.amount === "" ? "-" : prop(String(item.amount), 24),
@@ -424,7 +427,7 @@
       });
       catalogId = files[0] ? files[0].id : "";
     }
-    if (!catalogId) return { fileId: "", items: [] };
+    if (!catalogId) return { fileId: "", items: [], categories: [] };
     const blob = await download(catalogId);
     let data;
     try {
@@ -432,14 +435,43 @@
     } catch (e) {
       throw new Error("雲端清單壞掉了，請按「從雲端重建」");
     }
-    return { fileId: catalogId, items: Array.isArray(data.items) ? data.items : [] };
+    extraCategories = normalizeCategories(data.categories);
+    return {
+      fileId: catalogId,
+      items: Array.isArray(data.items) ? data.items : [],
+      categories: extraCategories.map(function (item) { return { name: item.name, help: item.help }; })
+    };
+  }
+
+  function normalizeCategories(list) {
+    const out = [];
+    const seen = {};
+    (list || []).forEach(function (item) {
+      const name = Array.from(String(item && item.name || "").trim()).slice(0, 12).join("");
+      const help = Array.from(String(item && item.help || "").trim()).slice(0, 80).join("");
+      if (!name || seen[name]) return;
+      seen[name] = true;
+      out.push({ name: name, help: help });
+    });
+    return out;
+  }
+
+  async function saveCategories(list) {
+    const clean = normalizeCategories(list);
+    return withCatalog(async function () {
+      const cat = await readCatalog();
+      extraCategories = clean;
+      await writeCatalog(cat.fileId, cat.items || []);
+      return extraCategories.map(function (item) { return { name: item.name, help: item.help }; });
+    });
   }
 
   async function writeCatalog(fileId, items) {
     const payload = {
       version: 1,
       updatedAt: new Date().toISOString(),
-      items: items
+      items: items,
+      categories: extraCategories
     };
     const body = JSON.stringify(payload, null, 2);
     if (!fileId) {
@@ -653,6 +685,7 @@
     login: login,
     logout: logout,
     readCatalog: readCatalog,
+    saveCategories: saveCategories,
     uploadNew: uploadNew,
     updateMeta: updateMeta,
     removeItem: removeItem,
@@ -663,6 +696,9 @@
     allowedEmails: allowedEmails,
     isAllowed: isAllowed,
     folderName: folderName,
+    categories: function () {
+      return extraCategories.map(function (item) { return { name: item.name, help: item.help }; });
+    },
     account: function () { return account; }
   };
 })(window);

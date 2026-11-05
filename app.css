@@ -373,6 +373,7 @@ button:active { transform: translateY(1px); }
   font-size: 13px;
   font-weight: 700;
   background: #efe6d6;
+  color: var(--ink);
 }
 
 .pill[data-cat="帳單"] { background: #e5f4ee; color: #146048; }
@@ -568,6 +569,28 @@ button:active { transform: translateY(1px); }
   font-size: 15px;
   line-height: 1.5;
 }
+
+.settings-h {
+  margin: 18px 0 8px;
+  font-size: 18px;
+}
+
+.cat-list { display: grid; gap: 8px; }
+
+.cat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.cat-row b { display: block; font-size: 16px; }
+.cat-row p { margin: 4px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.cat-row .today { flex: 0 0 auto; }
 
 .pick button[aria-pressed="true"] {
   background: var(--ink);

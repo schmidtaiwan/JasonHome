@@ -1,9 +1,7 @@
 (function () {
-  const CAT = window.JHClassify.CATEGORIES;
-  const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 11;
+  const PAGE_BUILD = 12;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -111,6 +109,17 @@
       .sort(function (a, b) {
         return stamp(b).localeCompare(stamp(a)) || String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
       });
+  }
+
+  function categories() {
+    return window.JHClassify.names();
+  }
+
+  function applyCategories(list) {
+    window.JHClassify.setCustom(list || []);
+    if (categories().indexOf(state.filter) < 0 && state.filter !== "全部" && state.filter !== "待確認") {
+      state.filter = "全部";
+    }
   }
 
   function setOverlay(on) {
@@ -300,6 +309,7 @@
       : "上傳";
     $("sheet-next").hidden = state.queue.length < 2;
     $("save-all").hidden = state.queue.length < 2;
+    bindPickCats();
     document.querySelectorAll("#pick-cat button").forEach(function (btn) {
       btn.setAttribute("aria-pressed", btn.dataset.cat === draft.category ? "true" : "false");
     });
@@ -445,21 +455,19 @@
 
   function renderFilters() {
     const host = $("filters");
-    if (!host.childElementCount) {
-      FILTERS.forEach(function (cat) {
+    const filters = ["全部", "待確認"].concat(categories());
+    const have = Array.prototype.map.call(host.querySelectorAll(".chip"), function (btn) { return btn.dataset.cat; });
+    if (have.join("\n") !== filters.join("\n")) {
+      host.replaceChildren();
+      filters.forEach(function (cat) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "chip";
         btn.dataset.cat = cat;
         host.appendChild(btn);
       });
-      host.addEventListener("click", function (ev) {
-        const btn = ev.target.closest("button");
-        if (!btn) return;
-        state.filter = btn.dataset.cat;
-        render();
-      });
     }
+    if (filters.indexOf(state.filter) < 0) state.filter = "全部";
     host.querySelectorAll(".chip").forEach(function (btn) {
       const cat = btn.dataset.cat;
       const n = state.items.filter(function (item) { return inFilter(item, cat); }).length;
@@ -611,7 +619,7 @@
 
   function paintCats(host, selected, onPick) {
     host.replaceChildren();
-    CAT.forEach(function (cat) {
+    categories().forEach(function (cat) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.dataset.cat = cat;
@@ -813,6 +821,7 @@
     try {
       const cat = await window.JHDrive.readCatalog();
       state.items = cat.items || [];
+      applyCategories(cat.categories);
       $("empty").classList.remove("warn");
       $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，點分類後就存進雲端硬碟。";
       render();
@@ -860,6 +869,7 @@
     signedIn = null;
     catalogTask = null;
     closeDetail();
+    closeSettings();
     closeSheet(true);
     showLogin();
     $("gate-msg").textContent = "";
@@ -870,6 +880,7 @@
     try {
       const cat = await window.JHDrive.readCatalog();
       state.items = cat.items || [];
+      applyCategories(cat.categories);
       render();
       toast("已更新");
     } catch (err) {
@@ -882,11 +893,133 @@
     toast("正在重建…");
     try {
       state.items = await window.JHDrive.rebuild();
+      applyCategories(window.JHDrive.categories());
       render();
       toast("清單已重建，共 " + state.items.length + " 筆");
     } catch (err) {
       console.error(err);
       toast(err.message || "重建失敗");
+    }
+  }
+
+  function refreshCategoryUi() {
+    render();
+    if (!$("sheet").hidden) {
+      const draft = currentDraft();
+      if (draft) fillForm(draft);
+    }
+    if (!$("detail").hidden && state.detailId) openDetail(state.detailId);
+    paintSettings();
+  }
+
+  function paintSettings() {
+    const builtins = $("builtin-cats");
+    const customs = $("custom-cats");
+    if (!builtins || !customs) return;
+    builtins.replaceChildren();
+    window.JHClassify.builtins().forEach(function (item) {
+      builtins.appendChild(categoryRow(item, false));
+    });
+    customs.replaceChildren();
+    const extra = window.JHClassify.custom();
+    if (!extra.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "還沒有自己加的分類。";
+      customs.appendChild(empty);
+      return;
+    }
+    extra.forEach(function (item) {
+      customs.appendChild(categoryRow(item, true));
+    });
+  }
+
+  function categoryRow(item, removable) {
+    const row = document.createElement("div");
+    row.className = "cat-row";
+    const body = document.createElement("div");
+    const name = document.createElement("b");
+    name.textContent = item.name;
+    const help = document.createElement("p");
+    help.textContent = item.help || "沒有說明";
+    body.append(name, help);
+    row.appendChild(body);
+    if (removable) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "today";
+      btn.textContent = "刪除";
+      btn.addEventListener("click", function () { removeCategory(item.name); });
+      row.appendChild(btn);
+    }
+    return row;
+  }
+
+  function openSettings() {
+    $("settings-msg").textContent = "";
+    paintSettings();
+    $("settings").hidden = false;
+    setOverlay(true);
+    $("settings").scrollTop = 0;
+  }
+
+  function closeSettings() {
+    $("settings").hidden = true;
+    if ($("sheet").hidden && $("detail").hidden) setOverlay(false);
+  }
+
+  async function onAddCategory() {
+    const name = $("new-cat").value.trim();
+    const help = $("new-help").value.trim();
+    $("settings-msg").textContent = "";
+    if (!name) {
+      $("settings-msg").textContent = "請填分類名稱";
+      return;
+    }
+    if (Array.from(name).length > 12) {
+      $("settings-msg").textContent = "分類名稱最多 12 個字";
+      return;
+    }
+    if (/[\\/:*?"<>|]/.test(name)) {
+      $("settings-msg").textContent = "名稱不要用斜線或這些符號";
+      return;
+    }
+    if (window.JHClassify.isBuiltin(name) || window.JHClassify.names().indexOf(name) >= 0) {
+      $("settings-msg").textContent = "已經有這個分類";
+      return;
+    }
+    if (!help) {
+      $("settings-msg").textContent = "請填說明，點這個分類時會出現";
+      return;
+    }
+    const next = window.JHClassify.custom().concat([{ name: name, help: help }]);
+    $("add-cat").disabled = true;
+    try {
+      const saved = await window.JHDrive.saveCategories(next);
+      applyCategories(saved);
+      $("new-cat").value = "";
+      $("new-help").value = "";
+      refreshCategoryUi();
+      toast("已新增「" + name + "」");
+    } catch (err) {
+      console.error(err);
+      $("settings-msg").textContent = err.message || "儲存失敗";
+    } finally {
+      $("add-cat").disabled = false;
+    }
+  }
+
+  async function removeCategory(name) {
+    if (!confirm("刪除「" + name + "」？已經用這個分類的單據會留著，只是不能再新選它。")) return;
+    const next = window.JHClassify.custom().filter(function (item) { return item.name !== name; });
+    try {
+      const saved = await window.JHDrive.saveCategories(next);
+      applyCategories(saved);
+      refreshCategoryUi();
+      toast("已刪除「" + name + "」");
+    } catch (err) {
+      console.error(err);
+      $("settings-msg").textContent = err.message || "刪除失敗";
     }
   }
 
@@ -900,6 +1033,15 @@
   function bind() {
     showVersion();
     $("prefer").textContent = window.JHDrive.allowedEmails().join(" 或 ");
+    $("filters").addEventListener("click", function (ev) {
+      const btn = ev.target.closest("button");
+      if (!btn || !$("filters").contains(btn)) return;
+      state.filter = btn.dataset.cat;
+      render();
+    });
+    $("settings-open").addEventListener("click", openSettings);
+    $("settings-close").addEventListener("click", closeSettings);
+    $("add-cat").addEventListener("click", onAddCategory);
     $("login").addEventListener("click", function () {
       let hint = "";
       try { hint = localStorage.getItem("jh_email") || ""; } catch (e) { hint = ""; }
@@ -976,6 +1118,7 @@
     document.addEventListener("keydown", function (ev) {
       if (ev.key !== "Escape") return;
       if (!$("detail").hidden) closeDetail();
+      else if (!$("settings").hidden) closeSettings();
       else if (!$("sheet").hidden) closeSheet(false);
     });
     bindPickCats();
