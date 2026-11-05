@@ -499,6 +499,11 @@ button:active { transform: translateY(1px); }
   justify-content: center;
   overflow: hidden;
   position: relative;
+  user-select: none;
+}
+
+.stage.can-swipe {
+  touch-action: pan-y;
 }
 
 .stage img, .shot img {
@@ -506,6 +511,28 @@ button:active { transform: translateY(1px); }
   max-height: 42vh;
   object-fit: contain;
   display: block;
+}
+
+.stage img {
+  transition: transform 0.2s ease;
+}
+
+.stage.dragging img {
+  transition: none;
+}
+
+.swipe-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  margin: 0;
+  text-align: center;
+  color: #fffaf2;
+  font-size: 13px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
 }
 
 .shot {

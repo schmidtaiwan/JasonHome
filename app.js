@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 12;
+  const PAGE_BUILD = 13;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -309,6 +309,9 @@
       : "上傳";
     $("sheet-next").hidden = state.queue.length < 2;
     $("save-all").hidden = state.queue.length < 2;
+    $("stage").classList.toggle("can-swipe", state.queue.length > 1);
+    $("swipe-hint").hidden = state.queue.length < 2;
+    $("preview").style.transform = "";
     bindPickCats();
     document.querySelectorAll("#pick-cat button").forEach(function (btn) {
       btn.setAttribute("aria-pressed", btn.dataset.cat === draft.category ? "true" : "false");
@@ -355,6 +358,62 @@
     if (next < 0 || next >= state.queue.length) return;
     state.index = next;
     fillForm(currentDraft());
+  }
+
+  function bindPhotoSwipe() {
+    const stage = $("stage");
+    const img = $("preview");
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let dy = 0;
+    let pid = 0;
+    let tracking = false;
+
+    stage.addEventListener("pointerdown", function (ev) {
+      if (state.queue.length < 2) return;
+      if (ev.button != null && ev.button !== 0) return;
+      tracking = true;
+      pid = ev.pointerId;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      dx = 0;
+      dy = 0;
+      try { stage.setPointerCapture(ev.pointerId); } catch (e) { /* 忽略 */ }
+    });
+
+    stage.addEventListener("pointermove", function (ev) {
+      if (!tracking || ev.pointerId !== pid) return;
+      dx = ev.clientX - startX;
+      dy = ev.clientY - startY;
+      if (Math.abs(dx) < 8 || Math.abs(dx) <= Math.abs(dy)) return;
+      stage.classList.add("dragging");
+      const shift = Math.max(-140, Math.min(140, dx));
+      img.style.transform = "translateX(" + shift + "px)";
+    });
+
+    function endSwipe(ev) {
+      if (!tracking || (ev && ev.pointerId !== pid)) return;
+      tracking = false;
+      stage.classList.remove("dragging");
+      const horizontal = Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy);
+      const step = dx < 0 ? 1 : -1;
+      const next = state.index + step;
+      const canMove = horizontal && next >= 0 && next < state.queue.length;
+      if (canMove) {
+        img.style.transition = "none";
+        img.style.transform = "";
+        showDraft(step);
+        requestAnimationFrame(function () { img.style.transition = ""; });
+      } else {
+        img.style.transform = "";
+      }
+      dx = 0;
+      dy = 0;
+    }
+
+    stage.addEventListener("pointerup", endSwipe);
+    stage.addEventListener("pointercancel", endSwipe);
   }
 
   function draftToItem(draft) {
@@ -1077,6 +1136,7 @@
       if (!card) return;
       openDetail(card.dataset.id);
     });
+    bindPhotoSwipe();
     $("sheet-close").addEventListener("click", function () { closeSheet(false); });
     $("sheet-next").addEventListener("click", function () {
       if (state.index >= state.queue.length - 1) showDraft(-state.index);
