@@ -3,7 +3,7 @@
   const FILTERS = ["全部", "待確認"].concat(CAT);
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 7;
+  const PAGE_BUILD = 9;
   const PAGE_DATE = "2026-11-05";
 
   const state = {
@@ -85,7 +85,7 @@
   function hay(item) {
     return [
       item.category, item.vendor, item.note, item.invoiceNo, item.taxId,
-      item.name, item.date, item.text, item.amount
+      item.name, item.date, item.text, item.amount, item.by
     ].join(" ").toLowerCase().replace(/,/g, "");
   }
 
@@ -304,6 +304,8 @@
       btn.setAttribute("aria-pressed", btn.dataset.cat === draft.category ? "true" : "false");
     });
     showHelp($("pick-help"), draft.category);
+    const who = String((window.JHDrive.account() || {}).email || "").trim().toLowerCase();
+    $("sheet-by").textContent = who ? "上傳者 " + who : "";
   }
 
   async function openQueue(fileList) {
@@ -359,6 +361,7 @@
       vendor: draft.vendor,
       amount: draft.amount,
       note: draft.note,
+      by: String((window.JHDrive.account() || {}).email || "").trim().toLowerCase(),
       invoiceNo: draft.invoiceNo,
       taxId: draft.taxId,
       text: snippet,
@@ -536,6 +539,12 @@
         sub.textContent = bits.join(" · ");
         body.appendChild(sub);
       }
+      if (item.by) {
+        const by = document.createElement("span");
+        by.className = "by";
+        by.textContent = item.by;
+        body.appendChild(by);
+      }
       if (item.needsReview) {
         const review = document.createElement("span");
         review.className = "review";
@@ -639,8 +648,13 @@
     $("d-vendor").value = item.vendor || "";
     $("d-amount").value = item.amount == null ? "" : String(item.amount);
     $("d-note").value = item.note || "";
-    $("detail-meta").textContent = [item.mime === "application/pdf" ? "PDF" : "照片", formatBytes(item.bytes), item.invoiceNo, item.taxId ? "統編 " + item.taxId : ""]
-      .filter(Boolean).join(" · ");
+    $("detail-meta").textContent = [
+      item.by ? "上傳者 " + item.by : "上傳者未記錄",
+      item.mime === "application/pdf" ? "PDF" : "照片",
+      formatBytes(item.bytes),
+      item.invoiceNo,
+      item.taxId ? "統編 " + item.taxId : ""
+    ].filter(Boolean).join(" · ");
     $("open-drive").href = "https://drive.google.com/file/d/" + item.fileId + "/view";
     $("open-file").href = $("open-drive").href;
     $("detail").dataset.cat = item.category || "其他";
@@ -756,17 +770,21 @@
       return;
     }
     showMain(acc.email);
+    $("empty").classList.remove("warn");
     $("empty").textContent = "正在讀取雲端清單…";
     $("empty").hidden = false;
     try {
       const cat = await window.JHDrive.readCatalog();
       state.items = cat.items || [];
+      $("empty").classList.remove("warn");
       $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，點分類後就存進雲端硬碟。";
       render();
     } catch (err) {
       console.error(err);
-      toast(err.message || "讀取雲端失敗");
-      $("empty").textContent = "讀取清單失敗。請按右上角「更新」，或從雲端重建。";
+      const detail = err && err.message ? err.message : "請按右上角「更新」，或從雲端重建。";
+      toast(detail);
+      $("empty").classList.add("warn");
+      $("empty").textContent = "讀取清單失敗。" + detail;
       $("empty").hidden = false;
     }
   }

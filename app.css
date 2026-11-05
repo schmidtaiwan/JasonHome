@@ -74,8 +74,8 @@ button:active { transform: translateY(1px); }
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 32px 24px calc(32px + env(safe-area-inset-bottom));
+  justify-content: flex-start;
+  padding: 28px 22px calc(28px + env(safe-area-inset-bottom));
 }
 
 .mark {
@@ -93,10 +93,18 @@ button:active { transform: translateY(1px); }
   letter-spacing: 0;
 }
 
+.story {
+  margin: 0 0 16px;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.8;
+}
+
 .lede {
-  margin: 0 0 20px;
+  margin: 4px 0 20px;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
 .account-note {
@@ -343,6 +351,17 @@ button:active { transform: translateY(1px); }
 
 .amt.missing, .card-sub { color: var(--muted); font-size: 14px; font-weight: 500; }
 
+.by, .by-line {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.by-line { margin: 0 16px 8px; }
+
 .pill {
   flex: 0 0 auto;
   border-radius: 999px;
@@ -378,6 +397,11 @@ button:active { transform: translateY(1px); }
   padding: 8px 4px;
   color: var(--muted);
   font-size: 17px;
+}
+
+.empty.warn {
+  color: var(--warn);
+  font-weight: 700;
 }
 
 .fine {

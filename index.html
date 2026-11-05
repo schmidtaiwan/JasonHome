@@ -13,13 +13,16 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=7">
+  <link rel="stylesheet" href="app.css?v=9">
 </head>
 <body>
   <section id="gate" class="gate">
     <img class="mark" src="icon.svg" alt="">
     <h1>三生有杏</h1>
-    <p class="lede">拍下帳單、稅單、發票或收據，自己點分類後存進 Google 雲端硬碟。之後可以用店家、金額或日期找出來，並看到當時的快照。</p>
+    <p class="story">三生有杏是一個充滿愛與希望的幸福家庭。爸爸名叫三才，象徵著珍惜生命中的每一份緣分與相遇，也代表對家庭生生不息的守護與責任；媽媽名叫銀杏，「杏」自古象徵溫暖、智慧與希望，如同春風化雨般呵護著家人，讓家中充滿溫馨與幸福。</p>
+    <p class="story">大女兒譁庭，「譁」寓意活潑開朗、充滿朝氣，「庭」象徵家庭與歸屬，代表她為家中帶來歡笑與活力，讓家的每個角落都洋溢著生機。小女兒芷晴，「芷」是高雅芬芳的香草，象徵純真善良與高潔品格；「晴」代表陽光與晴朗，寓意著樂觀開朗的人生，也如暖陽般照亮家人的心。</p>
+    <p class="story">當三生遇見有杏，成就了「三生有幸」的美好緣分；而有了譁庭與芷晴的陪伴，更讓這個家充滿歡笑、希望與無限可能。四個名字匯聚成一個溫暖的故事，象徵一家四口攜手同行，在愛與珍惜中共同成長，創造屬於他們獨一無二的幸福篇章。</p>
+    <p class="lede">拍下帳單、稅單、發票或收據，自己點分類後存進雲端硬碟。</p>
     <p class="account-note">請用 <strong id="prefer"></strong> 登入。照片與 PDF 都寫入 jason660803@gmail.com 的雲端硬碟，不會進 GitHub。</p>
     <button id="login" class="primary" type="button">用 Google 登入</button>
     <p id="gate-ver" class="page-ver">版次 —</p>
@@ -45,7 +48,7 @@
       <label class="search-wrap">
         <span class="sr">搜尋</span>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-        <input id="q" type="search" placeholder="搜尋店家、金額、發票號碼、備註" enterkeyhint="search" autocomplete="off">
+        <input id="q" type="search" placeholder="搜尋店家、金額、發票號碼、備註、上傳者" enterkeyhint="search" autocomplete="off">
       </label>
     </header>
     <div id="filters" class="filters"></div>
@@ -77,6 +80,7 @@
       <span id="preview-badge" class="badge" hidden>PDF</span>
     </div>
     <p id="sheet-status" class="status-line" role="status"></p>
+    <p id="sheet-by" class="by-line"></p>
     <div class="form">
       <div id="pick-cat" class="pick"></div>
       <p id="pick-help" class="cat-help" hidden></p>
@@ -148,9 +152,9 @@
   <input id="pdf" class="file" type="file" accept="application/pdf,.pdf" multiple>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="google_config.js?v=7" defer></script>
-  <script src="classify.js?v=7" defer></script>
-  <script src="drive.js?v=7" defer></script>
-  <script src="app.js?v=7" defer></script>
+  <script src="google_config.js?v=9" defer></script>
+  <script src="classify.js?v=9" defer></script>
+  <script src="drive.js?v=9" defer></script>
+  <script src="app.js?v=9" defer></script>
 </body>
 </html>

@@ -185,22 +185,32 @@
     return out;
   }
 
+  async function grantWriter(folderId, email, notify) {
+    const res = await driveFetch(
+      "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(folderId) +
+      "/permissions?supportsAllDrives=true&sendNotificationEmail=" + (notify ? "true" : "false"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "writer", type: "user", emailAddress: email })
+      }
+    );
+    if (res.ok || res.status === 409) return "";
+    const text = await res.text();
+    if (/already exists|duplicate/i.test(text)) return "";
+    return text.slice(0, 180);
+  }
+
   async function shareVault(folderId) {
     const others = allowedEmails().filter(function (email) { return email !== accountEmail(); });
     for (let i = 0; i < others.length; i++) {
-      const res = await driveFetch(
-        "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(folderId) +
-        "/permissions?supportsAllDrives=true&sendNotificationEmail=false",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: "writer", type: "user", emailAddress: others[i] })
-        }
-      );
-      if (res.ok || res.status === 409) continue;
-      const text = await res.text();
-      if (/already exists|duplicate/i.test(text)) continue;
-      throw new Error("無法把資料夾分享給 " + others[i] + "。" + text.slice(0, 140));
+      try {
+        let problem = await grantWriter(folderId, others[i], false);
+        if (problem) problem = await grantWriter(folderId, others[i], true);
+        if (problem) console.error("分享資料夾失敗", others[i], problem);
+      } catch (err) {
+        console.error("分享資料夾失敗", err);
+      }
     }
   }
 
@@ -378,7 +388,8 @@
       jhInv: prop(item.invoiceNo, 20),
       jhTax: prop(item.taxId, 16),
       jhReview: item.needsReview ? "1" : "0",
-      jhThumb: prop(item.thumbId, 80)
+      jhThumb: prop(item.thumbId, 80),
+      jhBy: prop(item.by, 80)
     };
   }
 
@@ -471,7 +482,10 @@
 
   async function uploadNew(item, storeBlob, thumbBlob) {
     if (!storeBlob) throw new Error("沒有可上傳的檔案");
+    const by = accountEmail();
+    if (!by) throw new Error("無法確認是誰上傳，請重新登入");
     const draft = Object.assign({}, item);
+    draft.by = by;
     draft.name = buildName(draft);
     const year = yearOf(draft);
     const folderId = await ensureFolder([folderName(), draft.category || "其他", year]);
@@ -604,6 +618,7 @@
       bytes: Number(file.size) || 0,
       createdAt: file.createdTime || "",
       needsReview: p.jhReview === "1",
+      by: cleanProp(p.jhBy),
       folderId: (file.parents && file.parents[0]) || "",
       text: ""
     };
