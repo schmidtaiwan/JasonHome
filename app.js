@@ -1,8 +1,8 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 16;
-  const PAGE_DATE = "2026-11-05";
+  const PAGE_BUILD = 17;
+  const PAGE_DATE = "2026-11-06";
 
   const state = {
     items: [],
@@ -714,20 +714,85 @@
     });
   }
 
+  function readPendingStore() {
+    try {
+      const data = JSON.parse(localStorage.getItem("jh_pending_delete") || "[]");
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writePendingStore(list) {
+    try {
+      if (!list.length) localStorage.removeItem("jh_pending_delete");
+      else localStorage.setItem("jh_pending_delete", JSON.stringify(list));
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function loadPendingDeletes() {
+    readPendingStore().forEach(function (row) {
+      if (row && row.id) pendingDelete.add(row.id);
+    });
+  }
+
+  function rememberPending(items) {
+    const cur = readPendingStore();
+    const have = {};
+    cur.forEach(function (row) { if (row && row.id) have[row.id] = true; });
+    items.forEach(function (item) {
+      if (!item || !item.id || have[item.id]) return;
+      have[item.id] = true;
+      cur.push({ id: item.id, fileId: item.fileId || "", thumbId: item.thumbId || "" });
+    });
+    writePendingStore(cur);
+  }
+
+  function forgetPending(items) {
+    const drop = {};
+    items.forEach(function (item) { if (item && item.id) drop[item.id] = true; });
+    writePendingStore(readPendingStore().filter(function (row) { return row && !drop[row.id]; }));
+  }
+
+  let settleRunning = false;
+  function settlePendingDeletes() {
+    const pending = readPendingStore().filter(function (row) { return row && row.id; });
+    if (!pending.length || settleRunning) return;
+    settleRunning = true;
+    loadPendingDeletes();
+    rememberItems(state.items);
+    render();
+    window.JHDrive.removeItems(pending).then(function () {
+      forgetPending(pending);
+      pending.forEach(function (row) { pendingDelete.delete(row.id); });
+      settleRunning = false;
+    }).catch(function (err) {
+      console.error(err);
+      settleRunning = false;
+    });
+  }
+
   function deleteInBackground(batch) {
     const gen = deleteGen;
     const n = batch.length;
     const snapshot = batch.map(function (item) { return Object.assign({}, item); });
+    rememberPending(snapshot);
     snapshot.forEach(function (item) { pendingDelete.add(item.id); });
     state.items = state.items.filter(function (item) { return !pendingDelete.has(item.id); });
     toast(n > 1 ? "正在背景刪除 " + n + " 張…" : "正在背景刪除…");
     window.JHDrive.removeItems(snapshot).then(function () {
-      if (gen !== deleteGen) return;
+      forgetPending(snapshot);
       snapshot.forEach(function (item) { pendingDelete.delete(item.id); });
+      if (gen !== deleteGen) return;
       toast("已刪除 " + n + " 張");
     }).catch(function (err) {
       console.error(err);
+      if (err && err.catalogUpdated) {
+        if (gen === deleteGen) toast("已從清單刪除，雲端檔案稍後再清");
+        return;
+      }
       if (gen !== deleteGen) return;
+      forgetPending(snapshot);
       snapshot.forEach(function (item) { pendingDelete.delete(item.id); });
       const have = {};
       state.items.forEach(function (item) { have[item.id] = true; });
@@ -1019,6 +1084,7 @@
       $("empty").classList.remove("warn");
       $("empty").textContent = "還沒有單據。用下方「拍照」或「相簿」，點分類後就存進雲端硬碟。";
       render();
+      settlePendingDeletes();
     } catch (err) {
       console.error(err);
       catalogTask = null;
@@ -1086,6 +1152,7 @@
       rememberItems(cat.items);
       applyCategories(cat.categories);
       render();
+      settlePendingDeletes();
       toast("已更新");
     } catch (err) {
       toast(err.message || "更新失敗");
@@ -1096,9 +1163,11 @@
     if (!confirm("用雲端硬碟裡的檔案重做清單。較長的備註可能只留前段，照片不會刪除。")) return;
     toast("正在重建…");
     try {
+      loadPendingDeletes();
       rememberItems(await window.JHDrive.rebuild());
       applyCategories(window.JHDrive.categories());
       render();
+      settlePendingDeletes();
       toast("清單已重建，共 " + state.items.length + " 筆");
     } catch (err) {
       console.error(err);
@@ -1272,6 +1341,7 @@
 
   function bind() {
     showVersion();
+    loadPendingDeletes();
     $("prefer").textContent = window.JHDrive.allowedEmails().join(" 或 ");
     $("filters").addEventListener("click", function (ev) {
       const btn = ev.target.closest("button");

@@ -615,13 +615,18 @@
       if (item.fileId) ids.push(item.fileId);
       if (item.thumbId) ids.push(item.thumbId);
     });
-    await trashMany(ids);
     const items = await withCatalog(async function () {
       const cat = await readCatalog();
       const next = cat.items.filter(function (x) { return !drop[x.id]; });
       await writeCatalog(cat.fileId, next);
       return next;
     });
+    try {
+      await trashMany(ids);
+    } catch (err) {
+      err.catalogUpdated = true;
+      throw err;
+    }
     return items;
   }
 
