@@ -1,8 +1,8 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 17;
-  const PAGE_DATE = "2026-11-06";
+  const PAGE_BUILD = 18;
+  const PAGE_DATE = "2026-11-10";
 
   const state = {
     items: [],
@@ -1060,7 +1060,6 @@
   }
 
   function openUpload() {
-    if (window.JHMusic) window.JHMusic.start();
     $("gate").hidden = true;
     $("app").hidden = false;
     if (!signedIn) return;
@@ -1097,7 +1096,6 @@
   }
 
   async function onLogin(opts) {
-    if (window.JHMusic) window.JHMusic.start();
     $("login").disabled = true;
     $("gate-msg").textContent = "正在登入…";
     try {
@@ -1444,9 +1442,6 @@
 
   async function boot() {
     bind();
-    document.addEventListener("pointerdown", function () {
-      if (window.JHMusic) window.JHMusic.start();
-    });
     try { await window.JHDrive.init(); }
     catch (err) {
       $("gate-msg").textContent = err.message || "Google 登入還沒準備好";
