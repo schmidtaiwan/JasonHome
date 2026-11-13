@@ -1,8 +1,8 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 18;
-  const PAGE_DATE = "2026-11-10";
+  const PAGE_BUILD = 19;
+  const PAGE_DATE = "2026-11-13";
 
   const state = {
     items: [],
@@ -17,7 +17,8 @@
     fileUrl: "",
     busy: false,
     selecting: false,
-    selected: new Set()
+    selected: new Set(),
+    preview: false
   };
 
   let toastTimer = 0;
@@ -333,6 +334,7 @@
   }
 
   async function openQueue(fileList) {
+    if (state.preview) return needLogin();
     const files = Array.prototype.slice.call(fileList || []).filter(Boolean);
     if (!files.length) return;
     closeSheet(true);
@@ -811,6 +813,7 @@
   }
 
   function toggleSelect(id, forceOn) {
+    if (state.preview) return needLogin();
     if (!state.selecting) {
       state.selecting = true;
       state.selected = new Set();
@@ -823,6 +826,7 @@
   }
 
   function onSelectDelete() {
+    if (state.preview) return needLogin();
     const batch = state.items.filter(function (item) { return state.selected.has(item.id); });
     if (!batch.length || state.busy) return;
     const n = batch.length;
@@ -935,6 +939,12 @@
     $("detail").hidden = false;
     setOverlay(true);
     $("detail").scrollTop = 0;
+    if (state.preview || item.preview) {
+      if (state.thumbs.get(item.thumbId)) $("shot").src = state.thumbs.get(item.thumbId);
+      $("open-drive").removeAttribute("href");
+      $("open-file").removeAttribute("href");
+      return;
+    }
     if (item.thumbId && !state.thumbs.get(item.thumbId)) {
       try {
         const blob = await window.JHDrive.download(item.thumbId);
@@ -966,6 +976,7 @@
   }
 
   async function onDetailSave() {
+    if (state.preview) return needLogin();
     const item = state.items.find(function (x) { return x.id === state.detailId; });
     if (!item || state.busy) return;
     const next = Object.assign({}, item, {
@@ -994,6 +1005,7 @@
   }
 
   function onDetailDelete() {
+    if (state.preview) return needLogin();
     const item = state.items.find(function (x) { return x.id === state.detailId; });
     if (!item) return;
     if (!confirm("從雲端硬碟刪除這張單據？檔案會進垃圾桶。")) return;
@@ -1018,12 +1030,140 @@
     $("filters").hidden = false;
     document.querySelector(".dock").hidden = false;
     $("who").textContent = email + " · " + window.JHDrive.preferredEmail() + " 的雲端硬碟 / " + window.JHDrive.folderName();
+    if (!state.preview) paintPreviewChrome();
+  }
+
+  function needLogin() {
+    toast("請先用 Google 登入");
+    return true;
+  }
+
+  function sampleThumb(label, color) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 360;
+    canvas.height = 480;
+    const g = canvas.getContext("2d");
+    g.fillStyle = color || "#efe6d6";
+    g.fillRect(0, 0, 360, 480);
+    g.fillStyle = "#c2410c";
+    g.fillRect(0, 0, 360, 14);
+    g.fillStyle = "#221b14";
+    g.font = "700 36px sans-serif";
+    g.fillText(label || "範例", 28, 120);
+    g.fillStyle = "#4e463c";
+    g.font = "400 22px sans-serif";
+    g.fillText("預覽格式，不是真實照片", 28, 170);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  }
+
+  function sampleItems() {
+    const day = todayIso();
+    const thumbs = [
+      { id: "pv_t1", url: sampleThumb("稅單", "#f5e6cf") },
+      { id: "pv_t2", url: sampleThumb("收據", "#e8f0e4") },
+      { id: "pv_t3", url: sampleThumb("發票", "#ebe4f5") }
+    ];
+    thumbs.forEach(function (t) { state.thumbs.set(t.id, t.url); });
+    return [
+      {
+        id: "pv_1",
+        thumbId: "pv_t1",
+        fileId: "",
+        mime: "image/jpeg",
+        category: "稅單",
+        date: day,
+        vendor: "範例：房屋稅",
+        amount: 12800,
+        note: "僅供看格式",
+        by: "範例帳號",
+        invoiceNo: "",
+        bytes: 0,
+        createdAt: day + "T00:00:00.000Z",
+        preview: true
+      },
+      {
+        id: "pv_2",
+        thumbId: "pv_t2",
+        fileId: "",
+        mime: "image/jpeg",
+        category: "收據",
+        date: day,
+        vendor: "範例：學費",
+        amount: 3500,
+        note: "預覽資料",
+        by: "範例帳號",
+        invoiceNo: "",
+        bytes: 0,
+        createdAt: day + "T00:00:00.000Z",
+        preview: true
+      },
+      {
+        id: "pv_3",
+        thumbId: "pv_t3",
+        fileId: "",
+        mime: "image/jpeg",
+        category: "發票",
+        date: day,
+        vendor: "範例：超商",
+        amount: 86,
+        note: "",
+        by: "範例帳號",
+        invoiceNo: "AB12345678",
+        bytes: 0,
+        createdAt: day + "T00:00:00.000Z",
+        preview: true
+      }
+    ];
+  }
+
+  function paintPreviewChrome() {
+    const on = state.preview;
+    $("logout").textContent = on ? "返回" : "登出";
+    $("settings-open").hidden = on;
+    $("reload").hidden = on;
+    document.body.classList.toggle("previewing", on);
+  }
+
+  function openPreview() {
+    state.preview = true;
+    state.selecting = false;
+    state.selected = new Set();
+    state.filter = "全部";
+    state.q = "";
+    $("q").value = "";
+    closeDetail();
+    closeSettings();
+    closeSheet(true);
+    state.items = sampleItems();
+    $("gate").hidden = true;
+    $("app").hidden = false;
+    showMain("預覽模式");
+    $("who").textContent = "預覽格式 · 不登入看不到真實資料與照片";
+    paintPreviewChrome();
+    render();
+  }
+
+  function leavePreview() {
+    state.preview = false;
+    state.items = [];
+    state.selecting = false;
+    state.selected = new Set();
+    state.filter = "全部";
+    state.q = "";
+    $("q").value = "";
+    closeDetail();
+    closeSettings();
+    closeSheet(true);
+    paintPreviewChrome();
+    showLogin();
   }
 
   let signedIn = null;
   let catalogTask = null;
 
   function showLogin() {
+    state.preview = false;
+    paintPreviewChrome();
     $("gate").hidden = false;
     $("gate").classList.remove("showing-story");
     $("login-pane").hidden = false;
@@ -1121,6 +1261,10 @@
   }
 
   function onLogout() {
+    if (state.preview) {
+      leavePreview();
+      return;
+    }
     window.JHDrive.logout();
     try { localStorage.removeItem("jh_email"); } catch (e) { /* 忽略 */ }
     state.items = [];
@@ -1144,6 +1288,7 @@
   }
 
   async function reload() {
+    if (state.preview) return needLogin();
     if ($("mismatch").hidden === false) return;
     try {
       const cat = await window.JHDrive.readCatalog();
@@ -1158,6 +1303,7 @@
   }
 
   async function onRebuild() {
+    if (state.preview) return needLogin();
     if (!confirm("用雲端硬碟裡的檔案重做清單。較長的備註可能只留前段，照片不會刪除。")) return;
     toast("正在重建…");
     try {
@@ -1227,6 +1373,7 @@
   }
 
   function openSettings() {
+    if (state.preview) return needLogin();
     $("settings-msg").textContent = "";
     paintSettings();
     $("settings").hidden = false;
@@ -1357,13 +1504,23 @@
       else onLogin({ prompt: "select_account" });
     });
     $("enter").addEventListener("click", openUpload);
+    $("preview").addEventListener("click", openPreview);
     $("logout").addEventListener("click", onLogout);
     $("switch").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
     $("reload").addEventListener("click", reload);
     $("rebuild").addEventListener("click", onRebuild);
-    $("shoot").addEventListener("click", function () { $("cam").click(); });
-    $("album-btn").addEventListener("click", function () { $("album").click(); });
-    $("pdf-btn").addEventListener("click", function () { $("pdf").click(); });
+    $("shoot").addEventListener("click", function () {
+      if (state.preview) return needLogin();
+      $("cam").click();
+    });
+    $("album-btn").addEventListener("click", function () {
+      if (state.preview) return needLogin();
+      $("album").click();
+    });
+    $("pdf-btn").addEventListener("click", function () {
+      if (state.preview) return needLogin();
+      $("pdf").click();
+    });
     $("cam").addEventListener("change", function () {
       openQueue($("cam").files);
       $("cam").value = "";

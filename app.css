@@ -211,7 +211,28 @@ button:active { transform: translateY(1px); }
   font-weight: 700;
 }
 
-.gate .page-ver { margin-top: 12px; }
+.gate .page-ver { margin: 0; }
+
+.gate-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.gate-preview {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+body.previewing .fine { display: none; }
 
 .brand .mark {
   width: 36px;
