@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 24;
+  const PAGE_BUILD = 25;
   const PAGE_DATE = "2026-11-13";
 
   const state = {
@@ -1124,6 +1124,26 @@
     document.body.classList.toggle("previewing", on);
   }
 
+  function startPreviewTour() {
+    state.preview = true;
+    state.selecting = false;
+    state.selected = new Set();
+    state.filter = "全部";
+    state.q = "";
+    $("q").value = "";
+    state.items = [];
+    state.thumbs.clear();
+    closeDetail();
+    closeSettings();
+    closeSheet(true);
+    $("gate").hidden = false;
+    $("gate").classList.add("showing-story");
+    $("login-pane").hidden = true;
+    $("story-pane").hidden = false;
+    $("app").hidden = true;
+    paintPreviewChrome();
+  }
+
   function openPreview() {
     state.preview = true;
     state.selecting = false;
@@ -1134,11 +1154,15 @@
     closeDetail();
     closeSettings();
     closeSheet(true);
-    state.items = sampleItems();
+    state.items = [];
+    state.thumbs.clear();
     $("gate").hidden = true;
     $("app").hidden = false;
     showMain("預覽模式");
-    $("who").textContent = "預覽格式 · 不登入看不到真實資料與照片";
+    $("who").textContent = "預覽模式 · 不登入，不顯示照片與資料";
+    $("empty").classList.remove("warn");
+    $("empty").textContent = "預覽模式不顯示單據與照片，僅供查看頁面跳轉與畫面。";
+    $("empty").hidden = false;
     paintPreviewChrome();
     render();
   }
@@ -1146,6 +1170,7 @@
   function leavePreview() {
     state.preview = false;
     state.items = [];
+    state.thumbs.clear();
     state.selecting = false;
     state.selected = new Set();
     state.filter = "全部";
@@ -1502,7 +1527,17 @@
       if (hint && window.JHDrive.isAllowed(hint)) onLogin({ prompt: "", hint: hint });
       else onLogin({ prompt: "select_account" });
     });
-    $("enter").addEventListener("click", openUpload);
+    $("gate-title").addEventListener("click", startPreviewTour);
+    $("gate-title").addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        startPreviewTour();
+      }
+    });
+    $("enter").addEventListener("click", function () {
+      if (state.preview) openPreview();
+      else openUpload();
+    });
     $("logout").addEventListener("click", onLogout);
     $("switch").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
     $("reload").addEventListener("click", reload);
