@@ -13,13 +13,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=25">
+  <link rel="stylesheet" href="app.css?v=26">
 </head>
 <body>
   <section id="gate" class="gate">
     <div id="login-pane">
       <h1 id="gate-title" tabindex="0" role="button" title="不登入預覽頁面">三生有杏</h1>
-      <img class="home-photo" src="home.jpg?v=25" alt="我家">
+      <img class="home-photo" src="home.jpg?v=26" alt="我家">
       <button id="login" class="primary" type="button">用 Google 登入</button>
       <p id="gate-ver" class="page-ver">版次 —</p>
       <p id="gate-msg" class="gate-msg" role="status"></p>
@@ -91,6 +91,10 @@
       <h2 id="sheet-title">上傳</h2>
       <button id="sheet-next" class="icon-btn" type="button">下一張</button>
     </div>
+    <div id="merge-mode" class="merge-mode" hidden>
+      <button id="merge-set" type="button" data-mode="set" aria-pressed="true">合成一份</button>
+      <button id="merge-each" type="button" data-mode="each" aria-pressed="false">各存一筆</button>
+    </div>
     <div id="stage" class="stage">
       <img id="preview" alt="即將上傳的單據" draggable="false">
       <span id="preview-badge" class="badge" hidden>PDF</span>
@@ -134,6 +138,11 @@
     <div class="shot">
       <img id="shot" alt="">
     </div>
+    <div id="page-nav" class="page-nav" hidden>
+      <button id="page-prev" type="button">上一頁</button>
+      <span id="page-label">1 / 1</span>
+      <button id="page-next" type="button">下一頁</button>
+    </div>
     <p id="detail-meta" class="meta-line"></p>
     <div class="form">
       <div id="detail-cat" class="pick"></div>
@@ -158,7 +167,7 @@
       <div class="detail-actions">
         <button id="detail-save" class="primary" type="button">儲存修改</button>
         <a id="open-file" class="secondary" style="display:flex;align-items:center;justify-content:center;text-decoration:none;" target="_blank" rel="noopener">開啟原檔</a>
-        <button id="detail-del" class="danger" type="button">刪除這張</button>
+        <button id="detail-del" class="danger" type="button">刪除這份</button>
       </div>
     </div>
   </section>
@@ -191,9 +200,9 @@
   <input id="pdf" class="file" type="file" accept="application/pdf,.pdf" multiple>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="google_config.js?v=25" defer></script>
-  <script src="classify.js?v=25" defer></script>
-  <script src="drive.js?v=25" defer></script>
-  <script src="app.js?v=25" defer></script>
+  <script src="google_config.js?v=26" defer></script>
+  <script src="classify.js?v=26" defer></script>
+  <script src="drive.js?v=26" defer></script>
+  <script src="app.js?v=26" defer></script>
 </body>
 </html>

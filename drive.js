@@ -372,14 +372,20 @@
       .slice(0, 24);
   }
 
-  function buildName(item) {
+  function buildName(item, pageIndex) {
     const vendor = safeBit(item.vendor || item.note || "單據") || "單據";
     const date = item.date || "未標日期";
     const tail = String(item.id || "file").slice(-6);
-    return date + "_" + (item.category || "其他") + "_" + vendor + "_" + tail + extOf(item);
+    const pages = Number(item.pageCount) || (item.pages && item.pages.length) || 1;
+    const pageBit = pages > 1 && pageIndex != null
+      ? "_p" + String(pageIndex + 1).padStart(2, "0")
+      : "";
+    const pageItem = (item.pages && item.pages[pageIndex]) || item;
+    return date + "_" + (item.category || "其他") + "_" + vendor + "_" + tail + pageBit + extOf(pageItem);
   }
 
-  function propsOf(item, role) {
+  function propsOf(item, role, pageIndex, thumbId) {
+    const pages = Number(item.pageCount) || (item.pages && item.pages.length) || 1;
     return {
       jhRole: role,
       jhId: prop(item.id, 60),
@@ -391,9 +397,23 @@
       jhInv: prop(item.invoiceNo, 20),
       jhTax: prop(item.taxId, 16),
       jhReview: item.needsReview ? "1" : "0",
-      jhThumb: prop(item.thumbId, 80),
-      jhBy: prop(item.by, 80)
+      jhThumb: prop(thumbId != null ? thumbId : item.thumbId, 80),
+      jhBy: prop(item.by, 80),
+      jhPage: String(pageIndex == null ? 0 : pageIndex),
+      jhPages: String(pages > 1 ? pages : 1)
     };
+  }
+
+  function pageListOf(item) {
+    if (item && Array.isArray(item.pages) && item.pages.length) return item.pages;
+    if (!item) return [];
+    return [{
+      fileId: item.fileId || "",
+      thumbId: item.thumbId || "",
+      mime: item.mime || "",
+      bytes: item.bytes || 0,
+      name: item.name || ""
+    }];
   }
 
   async function uploadMultipart(meta, blob, mime) {
@@ -513,39 +533,65 @@
   }
 
   async function uploadNew(item, storeBlob, thumbBlob) {
-    if (!storeBlob) throw new Error("沒有可上傳的檔案");
+    return uploadSet(item, [{ store: storeBlob, thumb: thumbBlob, mime: item && item.mime }]);
+  }
+
+  async function uploadSet(item, pageBlobs) {
+    const pagesIn = (pageBlobs || []).filter(function (p) { return p && p.store; });
+    if (!pagesIn.length) throw new Error("沒有可上傳的檔案");
     const by = accountEmail();
     if (!by) throw new Error("無法確認是誰上傳，請重新登入");
     const draft = Object.assign({}, item);
     draft.by = by;
-    draft.name = buildName(draft);
+    draft.pageCount = pagesIn.length;
     const year = yearOf(draft);
     const folderId = await ensureFolder([folderName(), draft.category || "其他", year]);
     const thumbFolder = await ensureFolder([folderName(), "thumbs"]);
-    const file = await uploadMultipart({
-      name: draft.name,
-      mimeType: draft.mime || storeBlob.type || "application/octet-stream",
-      parents: [folderId],
-      appProperties: propsOf(draft, "file")
-    }, storeBlob, draft.mime || storeBlob.type || "application/octet-stream");
-    let thumb = { id: "" };
-    if (thumbBlob) {
-      const thumbMeta = propsOf(draft, "thumb");
-      thumb = await uploadMultipart({
-        name: draft.id + ".jpg",
-        mimeType: "image/jpeg",
-        parents: [thumbFolder],
-        appProperties: thumbMeta
-      }, thumbBlob, "image/jpeg");
-      draft.thumbId = thumb.id;
-      await driveFetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(file.id) + "?supportsAllDrives=true", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appProperties: propsOf(draft, "file") })
+    const pages = [];
+    for (let i = 0; i < pagesIn.length; i++) {
+      const blob = pagesIn[i];
+      const mime = blob.mime || draft.mime || blob.store.type || "application/octet-stream";
+      const pageDraft = Object.assign({}, draft, {
+        mime: mime,
+        name: buildName(Object.assign({}, draft, { mime: mime, pageCount: pagesIn.length }), i)
+      });
+      let thumb = { id: "" };
+      if (blob.thumb) {
+        thumb = await uploadMultipart({
+          name: draft.id + (pagesIn.length > 1 ? "_p" + String(i + 1).padStart(2, "0") : "") + ".jpg",
+          mimeType: "image/jpeg",
+          parents: [thumbFolder],
+          appProperties: propsOf(draft, "thumb", i, "")
+        }, blob.thumb, "image/jpeg");
+      }
+      const file = await uploadMultipart({
+        name: pageDraft.name,
+        mimeType: mime,
+        parents: [folderId],
+        appProperties: propsOf(draft, "file", i, thumb.id || "")
+      }, blob.store, mime);
+      pages.push({
+        fileId: file.id,
+        thumbId: thumb.id || "",
+        mime: file.mimeType || mime,
+        bytes: Number(file.size) || Number(blob.store.size) || 0,
+        name: file.name || pageDraft.name
       });
     }
-    const stored = publicItem(draft, file, thumb);
-    stored.folderId = folderId;
+    const first = pages[0];
+    draft.fileId = first.fileId;
+    draft.thumbId = first.thumbId;
+    draft.mime = first.mime;
+    draft.bytes = first.bytes;
+    draft.name = first.name;
+    draft.folderId = folderId;
+    draft.pages = pages;
+    draft.pageCount = pages.length;
+    delete draft.storeBlob;
+    delete draft.thumbBlob;
+    delete draft.ocrBlob;
+    delete draft.previewUrl;
+    const stored = draft;
     const items = await withCatalog(async function () {
       const cat = await readCatalog();
       const next = cat.items.filter(function (x) { return x.id !== stored.id; });
@@ -567,27 +613,60 @@
 
   async function updateMeta(item) {
     const draft = Object.assign({}, item);
-    draft.name = buildName(draft);
+    const pages = pageListOf(draft);
+    draft.pageCount = pages.length;
+    draft.pages = pages;
     const folderId = await ensureFolder([folderName(), draft.category || "其他", yearOf(draft)]);
-    const oldParents = draft.folderId ? [draft.folderId] : await fileParents(draft.fileId);
-    let url = "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(draft.fileId) +
-      "?supportsAllDrives=true&fields=id,name,parents,mimeType,size";
-    const remove = oldParents.filter(function (id) { return id && id !== folderId; });
-    if (remove.length) {
-      url += "&addParents=" + encodeURIComponent(folderId) + "&removeParents=" + encodeURIComponent(remove.join(","));
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      if (!page.fileId) continue;
+      const pageName = buildName(Object.assign({}, draft, {
+        mime: page.mime,
+        name: page.name,
+        pageCount: pages.length
+      }), i);
+      const oldParents = (i === 0 && draft.folderId)
+        ? [draft.folderId]
+        : await fileParents(page.fileId);
+      let url = "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(page.fileId) +
+        "?supportsAllDrives=true&fields=id,name,parents,mimeType,size";
+      const remove = oldParents.filter(function (id) { return id && id !== folderId; });
+      if (remove.length) {
+        url += "&addParents=" + encodeURIComponent(folderId) + "&removeParents=" + encodeURIComponent(remove.join(","));
+      }
+      const res = await driveFetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: pageName,
+          appProperties: propsOf(draft, "file", i, page.thumbId || "")
+        })
+      });
+      if (!res.ok) await readErr(res, "更新單據失敗");
+      const file = await res.json();
+      page.name = file.name || pageName;
+      page.mime = file.mimeType || page.mime;
+      page.bytes = Number(file.size || page.bytes || 0);
+      if (page.thumbId) {
+        await driveFetch(
+          "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(page.thumbId) + "?supportsAllDrives=true",
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ appProperties: propsOf(draft, "thumb", i, page.thumbId) })
+          }
+        ).catch(function () { /* 縮圖屬性更新失敗可忽略 */ });
+      }
     }
-    const res = await driveFetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: draft.name,
-        appProperties: propsOf(draft, "file")
-      })
-    });
-    if (!res.ok) await readErr(res, "更新單據失敗");
-    const file = await res.json();
+    const first = pages[0] || {};
     draft.folderId = folderId;
-    draft.name = file.name || draft.name;
+    draft.fileId = first.fileId || draft.fileId;
+    draft.thumbId = first.thumbId || draft.thumbId;
+    draft.mime = first.mime || draft.mime;
+    draft.bytes = first.bytes || draft.bytes;
+    draft.name = first.name || draft.name;
+    draft.pages = pages;
+    draft.pageCount = pages.length;
     const items = await withCatalog(async function () {
       const cat = await readCatalog();
       const next = cat.items.map(function (x) { return x.id === draft.id ? draft : x; });
@@ -612,8 +691,10 @@
     });
     const ids = [];
     batch.forEach(function (item) {
-      if (item.fileId) ids.push(item.fileId);
-      if (item.thumbId) ids.push(item.thumbId);
+      pageListOf(item).forEach(function (page) {
+        if (page.fileId) ids.push(page.fileId);
+        if (page.thumbId) ids.push(page.thumbId);
+      });
     });
     const items = await withCatalog(async function () {
       const cat = await readCatalog();
@@ -708,6 +789,8 @@
     if (!p.jhId && !p.jhRole) return null;
     const amount = cleanProp(p.jhAmount);
     const num = amount === "" ? null : Number(amount);
+    const pageIndex = Number(cleanProp(p.jhPage) || "0");
+    const pageCount = Number(cleanProp(p.jhPages) || "1");
     return {
       id: cleanProp(p.jhId) || file.id,
       fileId: file.id,
@@ -726,18 +809,60 @@
       needsReview: p.jhReview === "1",
       by: cleanProp(p.jhBy),
       folderId: (file.parents && file.parents[0]) || "",
-      text: ""
+      text: "",
+      pageIndex: Number.isFinite(pageIndex) ? pageIndex : 0,
+      pageCount: Number.isFinite(pageCount) && pageCount > 0 ? pageCount : 1
     };
+  }
+
+  function mergeDrivePages(rows) {
+    const groups = {};
+    const order = [];
+    (rows || []).forEach(function (row) {
+      if (!row || !row.id) return;
+      if (!groups[row.id]) {
+        groups[row.id] = [];
+        order.push(row.id);
+      }
+      groups[row.id].push(row);
+    });
+    return order.map(function (id) {
+      const list = groups[id].slice().sort(function (a, b) {
+        return (a.pageIndex || 0) - (b.pageIndex || 0);
+      });
+      const first = list[0];
+      const pages = list.map(function (row) {
+        return {
+          fileId: row.fileId,
+          thumbId: row.thumbId || "",
+          mime: row.mime || "",
+          bytes: row.bytes || 0,
+          name: row.name || ""
+        };
+      });
+      const item = Object.assign({}, first, {
+        fileId: pages[0].fileId,
+        thumbId: pages[0].thumbId,
+        mime: pages[0].mime,
+        bytes: pages[0].bytes,
+        name: pages[0].name,
+        pages: pages,
+        pageCount: pages.length
+      });
+      delete item.pageIndex;
+      return item;
+    });
   }
 
   async function rebuild() {
     const q = "appProperties has { key='jhRole' and value='file' } and trashed=false";
     const files = await listAll(q, "id,name,mimeType,size,createdTime,parents,appProperties");
-    const items = [];
+    const rows = [];
     files.forEach(function (file) {
       const item = itemFromDrive(file);
-      if (item) items.push(item);
+      if (item) rows.push(item);
     });
+    const items = mergeDrivePages(rows);
     await withCatalog(async function () {
       const cat = await readCatalog();
       await writeCatalog(cat.fileId, items);
@@ -761,6 +886,7 @@
     readCatalog: readCatalog,
     saveCategories: saveCategories,
     uploadNew: uploadNew,
+    uploadSet: uploadSet,
     updateMeta: updateMeta,
     removeItem: removeItem,
     removeItems: removeItems,

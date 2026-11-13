@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 25;
+  const PAGE_BUILD = 26;
   const PAGE_DATE = "2026-11-13";
 
   const state = {
@@ -11,8 +11,10 @@
     thumbs: new Map(),
     queue: [],
     index: 0,
+    mergeSet: false,
     ocrGen: 0,
     detailId: "",
+    detailPage: 0,
     fullUrl: "",
     fileUrl: "",
     busy: false,
@@ -20,6 +22,25 @@
     selected: new Set(),
     preview: false
   };
+
+  function itemPages(item) {
+    if (item && Array.isArray(item.pages) && item.pages.length) return item.pages;
+    if (!item) return [];
+    return [{
+      fileId: item.fileId || "",
+      thumbId: item.thumbId || "",
+      mime: item.mime || "",
+      bytes: item.bytes || 0,
+      name: item.name || ""
+    }];
+  }
+
+  function pageCountOf(item) {
+    if (!item) return 1;
+    if (Number(item.pageCount) > 1) return Number(item.pageCount);
+    if (item.pages && item.pages.length > 1) return item.pages.length;
+    return 1;
+  }
 
   let toastTimer = 0;
   let deleteGen = 0;
@@ -308,7 +329,50 @@
     draft.note = $("f-note").value.trim();
   }
 
+  function paintMergeMode() {
+    const bar = $("merge-mode");
+    const multi = state.queue.length > 1;
+    bar.hidden = !multi;
+    if (!multi) {
+      state.mergeSet = false;
+      return;
+    }
+    $("merge-set").setAttribute("aria-pressed", state.mergeSet ? "true" : "false");
+    $("merge-each").setAttribute("aria-pressed", state.mergeSet ? "false" : "true");
+  }
+
+  function setMergeMode(on) {
+    if (state.queue.length < 2) return;
+    const draft = currentDraft();
+    if (draft) readFormInto(draft);
+    state.mergeSet = !!on;
+    if (state.mergeSet) syncQueueMeta(draft || state.queue[0]);
+    fillForm(currentDraft());
+  }
+
+  function syncQueueMeta(source) {
+    if (!source || !state.queue.length) return;
+    state.queue.forEach(function (draft) {
+      draft.category = source.category;
+      draft.catTouched = source.catTouched;
+      draft.date = source.date;
+      draft.dateTouched = source.dateTouched;
+      draft.vendor = source.vendor;
+      draft.vendorTouched = source.vendorTouched;
+      draft.amount = source.amount;
+      draft.amountTouched = source.amountTouched;
+      draft.note = source.note;
+      draft.noteTouched = source.noteTouched;
+      draft.invoiceNo = source.invoiceNo || draft.invoiceNo;
+      draft.taxId = source.taxId || draft.taxId;
+      draft.needsReview = source.needsReview;
+      draft.status = source.status;
+    });
+  }
+
   function fillForm(draft) {
+    if (!draft) return;
+    paintMergeMode();
     $("preview").src = draft.previewUrl;
     $("preview-badge").hidden = !draft.isPdf;
     $("sheet-status").textContent = draft.status || "";
@@ -316,11 +380,23 @@
     $("f-vendor").value = draft.vendor || "";
     $("f-amount").value = draft.amount == null ? "" : String(draft.amount);
     $("f-note").value = draft.note || "";
-    $("sheet-title").textContent = state.queue.length > 1
-      ? ("第 " + (state.index + 1) + " / " + state.queue.length + " 張")
-      : "上傳";
+    if (state.queue.length > 1 && state.mergeSet) {
+      $("sheet-title").textContent = "多頁 · 第 " + (state.index + 1) + " / " + state.queue.length + " 頁";
+      $("swipe-hint").textContent = "左右滑動換頁（同一份）";
+      $("save-one").textContent = "整份存入雲端";
+      $("save-all").hidden = true;
+    } else if (state.queue.length > 1) {
+      $("sheet-title").textContent = "第 " + (state.index + 1) + " / " + state.queue.length + " 張";
+      $("swipe-hint").textContent = "左右滑動換照片";
+      $("save-one").textContent = "存入雲端";
+      $("save-all").hidden = false;
+    } else {
+      $("sheet-title").textContent = "上傳";
+      $("swipe-hint").textContent = "左右滑動換照片";
+      $("save-one").textContent = "存入雲端";
+      $("save-all").hidden = true;
+    }
     $("sheet-next").hidden = state.queue.length < 2;
-    $("save-all").hidden = state.queue.length < 2;
     $("stage").classList.toggle("can-swipe", state.queue.length > 1);
     $("swipe-hint").hidden = state.queue.length < 2;
     $("preview").style.transform = "";
@@ -348,6 +424,7 @@
     }
     state.queue = queue;
     state.index = 0;
+    state.mergeSet = queue.length > 1;
     $("sheet").hidden = false;
     setOverlay(true);
     fillForm(queue[0]);
@@ -360,13 +437,18 @@
     });
     state.queue = [];
     state.index = 0;
+    state.mergeSet = false;
+    $("merge-mode").hidden = true;
     $("sheet").hidden = true;
     if ($("detail").hidden) setOverlay(false);
   }
 
   function showDraft(step) {
     const draft = currentDraft();
-    if (draft) readFormInto(draft);
+    if (draft) {
+      readFormInto(draft);
+      if (state.mergeSet) syncQueueMeta(draft);
+    }
     const next = state.index + step;
     if (next < 0 || next >= state.queue.length) return;
     state.index = next;
@@ -429,6 +511,45 @@
     stage.addEventListener("pointercancel", endSwipe);
   }
 
+  function bindDetailSwipe() {
+    const shot = document.querySelector(".shot");
+    if (!shot) return;
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let dy = 0;
+    let pid = 0;
+    let tracking = false;
+    shot.addEventListener("pointerdown", function (ev) {
+      if ($("detail").hidden) return;
+      const item = state.items.find(function (x) { return x.id === state.detailId; });
+      if (!item || pageCountOf(item) < 2) return;
+      if (ev.button != null && ev.button !== 0) return;
+      tracking = true;
+      pid = ev.pointerId;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      dx = 0;
+      dy = 0;
+    });
+    shot.addEventListener("pointermove", function (ev) {
+      if (!tracking || ev.pointerId !== pid) return;
+      dx = ev.clientX - startX;
+      dy = ev.clientY - startY;
+    });
+    function endSwipe(ev) {
+      if (!tracking || (ev && ev.pointerId !== pid)) return;
+      tracking = false;
+      if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
+        shiftDetailPage(dx < 0 ? 1 : -1);
+      }
+      dx = 0;
+      dy = 0;
+    }
+    shot.addEventListener("pointerup", endSwipe);
+    shot.addEventListener("pointercancel", endSwipe);
+  }
+
   function draftToItem(draft) {
     if (!draft.category) throw new Error("請先點一個分類");
     if (!draft.date) draft.date = todayIso();
@@ -464,18 +585,41 @@
     };
   }
 
+  function takeSetJob(queue) {
+    const list = (queue || []).slice();
+    if (!list.length) throw new Error("沒有可上傳的檔案");
+    const head = list[0];
+    syncQueueMeta(head);
+    const item = draftToItem(head);
+    item.pageCount = list.length;
+    const pages = list.map(function (draft) {
+      if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+      draft.previewUrl = "";
+      return {
+        store: draft.store,
+        thumb: draft.thumb,
+        mime: draft.mime
+      };
+    });
+    return {
+      gen: uploadGen,
+      item: item,
+      pages: pages
+    };
+  }
+
   function paintUpload() {
     const bar = $("upload-status");
     if (!bar) return;
     if (uploadLeft > 0) {
       bar.hidden = false;
-      $("upload-text").textContent = "正在背景上傳，剩下 " + uploadLeft + " 張";
+      $("upload-text").textContent = "正在背景上傳，剩下 " + uploadLeft + " 筆";
       $("upload-retry").hidden = true;
       return;
     }
     if (uploadFail.length) {
       bar.hidden = false;
-      $("upload-text").textContent = uploadFail.length + " 張沒存進雲端";
+      $("upload-text").textContent = uploadFail.length + " 筆沒存進雲端";
       $("upload-retry").hidden = false;
       return;
     }
@@ -487,7 +631,7 @@
     jobs.forEach(function (job) { uploadQueue.push(job); });
     uploadLeft += jobs.length;
     paintUpload();
-    toast(jobs.length > 1 ? "正在背景上傳 " + jobs.length + " 張…" : "正在背景上傳…");
+    toast(jobs.length > 1 ? "正在背景上傳 " + jobs.length + " 筆…" : "正在背景上傳…");
     pumpUploads();
   }
 
@@ -506,10 +650,19 @@
       const job = uploadQueue.shift();
       paintUpload();
       try {
-        const result = await window.JHDrive.uploadNew(job.item, job.store, job.thumb);
+        const result = job.pages && job.pages.length
+          ? await window.JHDrive.uploadSet(job.item, job.pages)
+          : await window.JHDrive.uploadNew(job.item, job.store, job.thumb);
         if (job.gen !== uploadGen) break;
-        if (job.thumb && result.item && result.item.thumbId) {
-          state.thumbs.set(result.item.thumbId, URL.createObjectURL(job.thumb));
+        const thumbBlob = job.pages && job.pages[0] ? job.pages[0].thumb : job.thumb;
+        if (thumbBlob && result.item && result.item.thumbId) {
+          state.thumbs.set(result.item.thumbId, URL.createObjectURL(thumbBlob));
+        }
+        if (job.pages && result.item && result.item.pages) {
+          result.item.pages.forEach(function (page, i) {
+            const blob = job.pages[i] && job.pages[i].thumb;
+            if (blob && page.thumbId) state.thumbs.set(page.thumbId, URL.createObjectURL(blob));
+          });
         }
         rememberItems(result.items);
         render();
@@ -529,10 +682,13 @@
     if (uploadQueue.length && uploadQueue[0].gen === uploadGen) pumpUploads();
     if (uploadQueue.length) return;
     if (!uploadLeft && ok && !uploadFail.length && last) {
-      toast(ok > 1 ? "已存入 " + ok + " 張" : ("已存到雲端：" + (last.category || "") + (last.vendor ? " · " + last.vendor : "")));
+      const pages = pageCountOf(last);
+      toast(ok > 1
+        ? ("已存入 " + ok + " 筆")
+        : ("已存到雲端：" + (last.category || "") + (last.vendor ? " · " + last.vendor : "") + (pages > 1 ? " · " + pages + " 頁" : "")));
     } else if (!uploadLeft && uploadFail.length) {
       const err = uploadFail[uploadFail.length - 1].err;
-      toast((err && err.message) || (uploadFail.length + " 張沒存進雲端"));
+      toast((err && err.message) || (uploadFail.length + " 筆沒存進雲端"));
     }
   }
 
@@ -540,6 +696,23 @@
     const draft = currentDraft();
     if (!draft) return;
     readFormInto(draft);
+    if (state.mergeSet && state.queue.length > 1) {
+      syncQueueMeta(draft);
+      if (!draft.category) {
+        toast("請先點一個分類");
+        return;
+      }
+      let job;
+      try { job = takeSetJob(state.queue); }
+      catch (err) {
+        toast(err.message || "無法上傳");
+        return;
+      }
+      state.queue = [];
+      closeSheet(true);
+      enqueueUploads([job]);
+      return;
+    }
     if (!draft.category) {
       toast("請先點一個分類");
       return;
@@ -558,6 +731,11 @@
     if (state.queue.length < 2) return;
     const shown = currentDraft();
     if (shown) readFormInto(shown);
+    if (state.mergeSet) {
+      syncQueueMeta(shown || state.queue[0]);
+      onSaveOne();
+      return;
+    }
     if (state.queue.some(function (d) { return !d.category; })) {
       toast("每一張都要先點分類");
       return;
@@ -628,6 +806,8 @@
       card.className = "card" + (state.selecting && state.selected.has(item.id) ? " selected" : "");
       card.dataset.id = item.id;
       card.setAttribute("aria-pressed", state.selecting && state.selected.has(item.id) ? "true" : "false");
+      const wrap = document.createElement("span");
+      wrap.className = "thumb-wrap";
       const img = document.createElement("img");
       img.className = "thumb";
       img.alt = "";
@@ -636,6 +816,14 @@
       if (!img.src) {
         img.removeAttribute("src");
         img.classList.add("thumb-fallback");
+      }
+      wrap.appendChild(img);
+      const pages = pageCountOf(item);
+      if (pages > 1) {
+        const badge = document.createElement("span");
+        badge.className = "page-badge";
+        badge.textContent = pages + "頁";
+        wrap.appendChild(badge);
       }
       const body = document.createElement("span");
       const top = document.createElement("span");
@@ -675,7 +863,7 @@
         review.textContent = "待確認";
         body.appendChild(review);
       }
-      card.append(img, body);
+      card.append(wrap, body);
       if (state.selecting && state.selected.has(item.id)) {
         const tick = document.createElement("span");
         tick.className = "tick";
@@ -903,33 +1091,100 @@
       draft.category = cat;
       draft.needsReview = false;
       draft.status = "";
+      if (state.mergeSet) syncQueueMeta(draft);
       fillForm(draft);
     });
+  }
+
+  function paintPageNav(item) {
+    const pages = itemPages(item);
+    const multi = pages.length > 1;
+    $("page-nav").hidden = !multi;
+    if (!multi) return;
+    if (state.detailPage < 0) state.detailPage = 0;
+    if (state.detailPage >= pages.length) state.detailPage = pages.length - 1;
+    $("page-label").textContent = (state.detailPage + 1) + " / " + pages.length;
+    $("page-prev").disabled = state.detailPage <= 0;
+    $("page-next").disabled = state.detailPage >= pages.length - 1;
+  }
+
+  async function showDetailPage(item, pageIndex) {
+    const pages = itemPages(item);
+    if (!pages.length) return;
+    state.detailPage = Math.max(0, Math.min(pageIndex, pages.length - 1));
+    const page = pages[state.detailPage];
+    paintPageNav(item);
+    if (state.fullUrl) {
+      URL.revokeObjectURL(state.fullUrl);
+      state.fullUrl = "";
+    }
+    const thumbUrl = state.thumbs.get(page.thumbId) || "";
+    if (thumbUrl) $("shot").src = thumbUrl;
+    $("open-drive").href = page.fileId
+      ? ("https://drive.google.com/file/d/" + page.fileId + "/view")
+      : "";
+    $("open-file").href = $("open-drive").href || "#";
+    $("detail-meta").textContent = [
+      item.by ? "上傳者 " + item.by : "上傳者未記錄",
+      pages.length > 1 ? ("第 " + (state.detailPage + 1) + " / " + pages.length + " 頁") : "",
+      (page.mime || item.mime) === "application/pdf" ? "PDF" : "照片",
+      formatBytes(page.bytes || item.bytes),
+      item.invoiceNo,
+      item.taxId ? "統編 " + item.taxId : ""
+    ].filter(Boolean).join(" · ");
+    if (state.preview || item.preview) {
+      $("open-drive").removeAttribute("href");
+      $("open-file").removeAttribute("href");
+      return;
+    }
+    if (page.thumbId && !state.thumbs.get(page.thumbId)) {
+      try {
+        const blob = await window.JHDrive.download(page.thumbId);
+        const url = URL.createObjectURL(blob);
+        state.thumbs.set(page.thumbId, url);
+        if (state.detailId === item.id && state.detailPage === pageIndex) $("shot").src = url;
+      } catch (e) { /* 再試原檔 */ }
+    }
+    if ((page.mime || item.mime || "").indexOf("image/") === 0 && page.fileId) {
+      try {
+        const blob = await window.JHDrive.download(page.fileId);
+        const url = URL.createObjectURL(blob);
+        if (state.detailId !== item.id || state.detailPage !== pageIndex) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        state.fullUrl = url;
+        $("shot").src = url;
+      } catch (e) {
+        toast("原圖暫時打不開，先顯示快照");
+      }
+    }
+  }
+
+  function shiftDetailPage(step) {
+    const item = state.items.find(function (x) { return x.id === state.detailId; });
+    if (!item) return;
+    const pages = itemPages(item);
+    if (pages.length < 2) return;
+    const next = state.detailPage + step;
+    if (next < 0 || next >= pages.length) return;
+    showDetailPage(item, next);
   }
 
   async function openDetail(id) {
     const item = state.items.find(function (x) { return x.id === id; });
     if (!item) return;
     state.detailId = id;
+    state.detailPage = 0;
     if (state.fullUrl) URL.revokeObjectURL(state.fullUrl);
     if (state.fileUrl) URL.revokeObjectURL(state.fileUrl);
     state.fullUrl = "";
     state.fileUrl = "";
-    $("shot").src = state.thumbs.get(item.thumbId) || "";
     $("shot").alt = item.vendor || item.category || "單據";
     $("d-date").value = item.date || "";
     $("d-vendor").value = item.vendor || "";
     $("d-amount").value = item.amount == null ? "" : String(item.amount);
     $("d-note").value = item.note || "";
-    $("detail-meta").textContent = [
-      item.by ? "上傳者 " + item.by : "上傳者未記錄",
-      item.mime === "application/pdf" ? "PDF" : "照片",
-      formatBytes(item.bytes),
-      item.invoiceNo,
-      item.taxId ? "統編 " + item.taxId : ""
-    ].filter(Boolean).join(" · ");
-    $("open-drive").href = "https://drive.google.com/file/d/" + item.fileId + "/view";
-    $("open-file").href = $("open-drive").href;
     $("detail").dataset.cat = item.category || "其他";
     paintCats($("detail-cat"), item.category, function () {});
     showHelp($("detail-help"), item.category);
@@ -939,37 +1194,14 @@
     $("detail").hidden = false;
     setOverlay(true);
     $("detail").scrollTop = 0;
-    if (state.preview || item.preview) {
-      if (state.thumbs.get(item.thumbId)) $("shot").src = state.thumbs.get(item.thumbId);
-      $("open-drive").removeAttribute("href");
-      $("open-file").removeAttribute("href");
-      return;
-    }
-    if (item.thumbId && !state.thumbs.get(item.thumbId)) {
-      try {
-        const blob = await window.JHDrive.download(item.thumbId);
-        const url = URL.createObjectURL(blob);
-        state.thumbs.set(item.thumbId, url);
-        if (state.detailId === id) $("shot").src = url;
-      } catch (e) { /* 下面再試原檔 */ }
-    } else if (state.thumbs.get(item.thumbId)) {
-      $("shot").src = state.thumbs.get(item.thumbId);
-    }
-    if ((item.mime || "").indexOf("image/") === 0) {
-      try {
-        const blob = await window.JHDrive.download(item.fileId);
-        const url = URL.createObjectURL(blob);
-        state.fullUrl = url;
-        if (state.detailId === id) $("shot").src = url;
-      } catch (e) {
-        toast("原圖暫時打不開，先顯示快照");
-      }
-    }
+    await showDetailPage(item, 0);
   }
 
   function closeDetail() {
     $("detail").hidden = true;
     state.detailId = "";
+    state.detailPage = 0;
+    $("page-nav").hidden = true;
     if ($("sheet").hidden) setOverlay(false);
     if (state.fullUrl) URL.revokeObjectURL(state.fullUrl);
     state.fullUrl = "";
@@ -1008,7 +1240,9 @@
     if (state.preview) return needLogin();
     const item = state.items.find(function (x) { return x.id === state.detailId; });
     if (!item) return;
-    if (!confirm("從雲端硬碟刪除這張單據？檔案會進垃圾桶。")) return;
+    if (!confirm(pageCountOf(item) > 1
+      ? ("從雲端硬碟刪除這份 " + pageCountOf(item) + " 頁單據？檔案會進垃圾桶。")
+      : "從雲端硬碟刪除這張單據？檔案會進垃圾桶。")) return;
     deleteInBackground([item]);
     closeDetail();
     render();
@@ -1581,6 +1815,9 @@
     $("select-cancel").addEventListener("click", endSelect);
     $("select-delete").addEventListener("click", onSelectDelete);
     bindPhotoSwipe();
+    bindDetailSwipe();
+    $("merge-set").addEventListener("click", function () { setMergeMode(true); });
+    $("merge-each").addEventListener("click", function () { setMergeMode(false); });
     $("sheet-close").addEventListener("click", function () { closeSheet(false); });
     $("sheet-next").addEventListener("click", function () {
       if (state.index >= state.queue.length - 1) showDraft(-state.index);
@@ -1595,6 +1832,7 @@
       draft.dateTouched = true;
       draft.date = todayIso();
       $("f-date").value = draft.date;
+      if (state.mergeSet) syncQueueMeta(draft);
     });
     ["f-date", "f-vendor", "f-amount", "f-note"].forEach(function (id) {
       $(id).addEventListener("input", function () {
@@ -1605,6 +1843,7 @@
         if (id === "f-amount") draft.amountTouched = true;
         if (id === "f-note") draft.noteTouched = true;
         readFormInto(draft);
+        if (state.mergeSet) syncQueueMeta(draft);
       });
     });
     $("detail-cat").addEventListener("click", function (ev) {
@@ -1619,6 +1858,8 @@
     $("detail-close").addEventListener("click", closeDetail);
     $("detail-save").addEventListener("click", onDetailSave);
     $("detail-del").addEventListener("click", onDetailDelete);
+    $("page-prev").addEventListener("click", function () { shiftDetailPage(-1); });
+    $("page-next").addEventListener("click", function () { shiftDetailPage(1); });
     $("d-today").addEventListener("click", function () { $("d-date").value = todayIso(); });
     document.addEventListener("keydown", function (ev) {
       if (ev.key !== "Escape") return;
