@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 21;
+  const PAGE_BUILD = 22;
   const PAGE_DATE = "2026-11-13";
 
   const state = {

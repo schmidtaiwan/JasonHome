@@ -105,8 +105,8 @@ button:active { transform: translateY(1px); }
   object-fit: contain;
   object-position: center top;
   border-radius: 18px;
-  background: #fff;
-  border: 1px solid var(--line);
+  background: var(--bg);
+  border: 0;
 }
 
 .story {
