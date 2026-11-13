@@ -102,12 +102,17 @@ button:active { transform: translateY(1px); }
   display: block;
   width: 100%;
   max-height: min(52vh, 420px);
-  margin: 0 0 14px;
+  margin: 0 0 20px;
   object-fit: contain;
   object-position: center top;
   border-radius: 18px;
   background: var(--bg);
   border: 0;
+}
+
+#login-pane .page-ver {
+  margin-top: 14px;
+  text-align: center;
 }
 
 .story {

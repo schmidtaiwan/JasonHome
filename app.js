@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 23;
+  const PAGE_BUILD = 24;
   const PAGE_DATE = "2026-11-13";
 
   const state = {
@@ -1487,7 +1487,6 @@
   function bind() {
     showVersion();
     loadPendingDeletes();
-    $("prefer").textContent = window.JHDrive.allowedEmails().join(" 或 ");
     $("filters").addEventListener("click", function (ev) {
       const btn = ev.target.closest("button");
       if (!btn || !$("filters").contains(btn)) return;
@@ -1504,7 +1503,6 @@
       else onLogin({ prompt: "select_account" });
     });
     $("enter").addEventListener("click", openUpload);
-    $("preview").addEventListener("click", openPreview);
     $("logout").addEventListener("click", onLogout);
     $("switch").addEventListener("click", function () { onLogin({ prompt: "select_account" }); });
     $("reload").addEventListener("click", reload);
