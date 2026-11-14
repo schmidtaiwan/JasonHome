@@ -845,6 +845,47 @@ textarea { min-height: 72px; resize: vertical; }
   font-size: 14px;
 }
 
+.update-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(34, 27, 20, 0.55);
+}
+
+.update-mask[hidden] {
+  display: none !important;
+}
+
+.update-card {
+  width: min(420px, 100%);
+  padding: 22px 20px;
+  border-radius: 22px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.update-card h2 {
+  margin: 0 0 10px;
+  font-size: 24px;
+}
+
+.update-card p {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.update-card .page-ver {
+  margin-bottom: 18px;
+}
+
 #toast {
   position: fixed;
   z-index: 80;

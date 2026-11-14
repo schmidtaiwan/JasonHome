@@ -11,9 +11,10 @@ alwaysApply: true
 
 1. 讀 `app.js` 的 `PAGE_BUILD`，加 1。把 `PAGE_DATE` 改成當天 `YYYY-MM-DD`。
 2. `index.html` 裡 css/js 的 `?v=` 改成同一個數字。頁首會顯示「版次 N (日期)」。
-3. `git add` 這次相關檔，commit，然後 `git push origin main`。
-4. 不要 force push。不要提交收據照片、PDF、`catalog.json`、憑證或 token。
-5. 回報版次號碼與線上網址，並請使用者 Ctrl+F5。
+3. 同步改 `version.json` 的 `build`、`date`（給線上版次檢查用）。
+4. `git add` 這次相關檔，commit，然後 `git push origin main`。
+5. 不要 force push。不要提交收據照片、PDF、`catalog.json`、憑證或 token。
+6. 回報版次號碼與線上網址，並請使用者 Ctrl+F5。
 
 僅回答問題、沒改檔案：不必加版次、不必 push。
 使用者當次說不要推或不要加版次：遵從當次指示。

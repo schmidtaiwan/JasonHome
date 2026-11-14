@@ -1,8 +1,8 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 26;
-  const PAGE_DATE = "2026-11-13";
+  const PAGE_BUILD = 27;
+  const PAGE_DATE = "2026-11-14";
 
   const state = {
     items: [],
@@ -1743,9 +1743,52 @@
     $("story-ver").textContent = text;
   }
 
+  let updateShown = false;
+  let updateTimer = 0;
+
+  function showUpdatePrompt(remote) {
+    if (updateShown) return;
+    updateShown = true;
+    const remoteBuild = Number(remote && remote.build) || 0;
+    const remoteDate = String((remote && remote.date) || "").trim();
+    $("update-ver").textContent = "目前 " + PAGE_BUILD + " → 線上 " + remoteBuild +
+      (remoteDate ? " (" + remoteDate + ")" : "");
+    $("update-mask").hidden = false;
+    $("login").disabled = true;
+  }
+
+  async function checkForUpdate() {
+    try {
+      const res = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return false;
+      const data = await res.json();
+      const remote = Number(data && data.build) || 0;
+      if (remote > PAGE_BUILD) {
+        showUpdatePrompt(data);
+        return true;
+      }
+    } catch (e) { /* 離線或暫時讀不到就略過 */ }
+    return false;
+  }
+
+  function watchUpdates() {
+    checkForUpdate();
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") checkForUpdate();
+    });
+    window.addEventListener("focus", function () { checkForUpdate(); });
+    clearInterval(updateTimer);
+    updateTimer = setInterval(checkForUpdate, 60000);
+  }
+
   function bind() {
     showVersion();
     loadPendingDeletes();
+    $("update-reload").addEventListener("click", function () {
+      const url = new URL(location.href);
+      url.searchParams.set("_v", String(Date.now()));
+      location.replace(url.toString());
+    });
     $("filters").addEventListener("click", function (ev) {
       const btn = ev.target.closest("button");
       if (!btn || !$("filters").contains(btn)) return;
@@ -1873,6 +1916,9 @@
 
   async function boot() {
     bind();
+    watchUpdates();
+    const needRefresh = await checkForUpdate();
+    if (needRefresh) return;
     try { await window.JHDrive.init(); }
     catch (err) {
       $("gate-msg").textContent = err.message || "Google 登入還沒準備好";
