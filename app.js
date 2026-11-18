@@ -1,8 +1,8 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 27;
-  const PAGE_DATE = "2026-11-14";
+  const PAGE_BUILD = 28;
+  const PAGE_DATE = "2026-11-18";
 
   const state = {
     items: [],
@@ -681,6 +681,7 @@
     uploadRunning = false;
     if (uploadQueue.length && uploadQueue[0].gen === uploadGen) pumpUploads();
     if (uploadQueue.length) return;
+    if (ok) refreshStorageQuota();
     if (!uploadLeft && ok && !uploadFail.length && last) {
       const pages = pageCountOf(last);
       toast(ok > 1
@@ -1248,7 +1249,56 @@
     render();
   }
 
+  let quotaGeneration = 0;
+
+  function formatStorage(bytes) {
+    const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+    return value.toLocaleString("zh-TW", { maximumFractionDigits: 2 }) + " " + units[unit];
+  }
+
+  function paintAccount() {
+    quotaGeneration += 1;
+    const acc = state.preview ? null : window.JHDrive.account();
+    $("account-info").hidden = !acc;
+    $("drive-quota").textContent = "";
+    const avatar = $("account-avatar");
+    avatar.hidden = true;
+    avatar.removeAttribute("src");
+    $("account-avatar-fallback").hidden = false;
+    $("account-name").textContent = acc ? (acc.name || acc.email) : "";
+    if (!acc) return;
+    $("account-avatar-fallback").textContent = Array.from(acc.name || acc.email || "G")[0].toUpperCase();
+    if (acc.picture && /^https:\/\//i.test(acc.picture)) {
+      avatar.src = acc.picture;
+      avatar.hidden = false;
+      $("account-avatar-fallback").hidden = true;
+    }
+  }
+
+  async function refreshStorageQuota() {
+    const gen = ++quotaGeneration;
+    const acc = window.JHDrive.account();
+    if (state.preview || !acc || !window.JHDrive.isAllowed(acc.email)) return;
+    $("drive-quota").textContent = "雲端硬碟容量：讀取中…";
+    try {
+      const q = await window.JHDrive.fetchStorageQuota();
+      if (gen !== quotaGeneration || state.preview || window.JHDrive.account() !== acc) return;
+      if (!q) throw new Error("無法取得雲端容量");
+      $("drive-quota").textContent = "目前登入帳號容量：已用 " + formatStorage(q.usageBytes) +
+        (q.limitBytes === null ? "（無容量上限）" : "／共 " + formatStorage(q.limitBytes) +
+          " · 剩餘 " + formatStorage(Math.max(0, q.limitBytes - q.usageBytes)));
+      $("drive-quota").title = acc.email + " 的 Google 儲存空間（含雲端硬碟、Gmail 與 Google 相簿）";
+    } catch (err) {
+      if (gen !== quotaGeneration || window.JHDrive.account() !== acc) return;
+      $("drive-quota").textContent = "雲端硬碟容量：讀取失敗，請按「更新」重試";
+    }
+  }
+
   function showMismatch(email) {
+    paintAccount();
     const want = window.JHDrive.preferredEmail();
     $("mismatch-text").textContent = "現在登入的是 " + email + "。請改用 " + window.JHDrive.allowedEmails().join(" 或 ") + "。檔案只放在 " + want + " 的雲端硬碟。";
     $("mismatch").hidden = false;
@@ -1259,6 +1309,8 @@
   }
 
   function showMain(email) {
+    paintAccount();
+    refreshStorageQuota();
     $("mismatch").hidden = true;
     $("main").hidden = false;
     $("filters").hidden = false;
@@ -1351,6 +1403,7 @@
   }
 
   function paintPreviewChrome() {
+    if (state.preview) paintAccount();
     const on = state.preview;
     $("logout").textContent = on ? "返回" : "登出";
     $("settings-open").hidden = on;
@@ -1422,6 +1475,7 @@
 
   function showLogin() {
     state.preview = false;
+    paintAccount();
     paintPreviewChrome();
     $("gate").hidden = false;
     $("gate").classList.remove("showing-story");
@@ -1548,6 +1602,7 @@
 
   async function reload() {
     if (state.preview) return needLogin();
+    refreshStorageQuota();
     if ($("mismatch").hidden === false) return;
     try {
       const cat = await window.JHDrive.readCatalog();
@@ -1782,6 +1837,10 @@
   }
 
   function bind() {
+    $("account-avatar").addEventListener("error", function () {
+      this.hidden = true;
+      $("account-avatar-fallback").hidden = false;
+    });
     showVersion();
     loadPendingDeletes();
     $("update-reload").addEventListener("click", function () {

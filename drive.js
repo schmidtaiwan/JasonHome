@@ -307,22 +307,41 @@
   async function fetchAccount() {
     let email = "";
     let name = "";
+    let picture = "";
     const info = await driveFetch("https://www.googleapis.com/oauth2/v2/userinfo");
     if (info.ok) {
       const u = await info.json();
       email = u.email || "";
       name = u.name || "";
+      picture = u.picture || "";
     }
-    if (!email) {
+    if (!email || !picture || !name) {
       const about = await driveFetch("https://www.googleapis.com/drive/v3/about?fields=user");
-      if (!about.ok) await readErr(about, "無法讀取 Google 帳號");
-      const data = await about.json();
-      email = (data.user && data.user.emailAddress) || "";
+      if (!about.ok && !email) await readErr(about, "無法讀取 Google 帳號");
+      const data = about.ok ? await about.json() : {};
+      email = email || (data.user && data.user.emailAddress) || "";
       name = name || (data.user && data.user.displayName) || "";
+      picture = picture || (data.user && data.user.photoLink) || "";
     }
     if (!email) throw new Error("無法讀取 Google 帳號信箱");
-    account = { email: email, name: name };
+    account = { email: email, name: name, picture: picture };
     return account;
+  }
+
+  async function fetchStorageQuota() {
+    if (!account || !isAllowed(accountEmail())) return null;
+    const res = await driveFetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota");
+    if (!res.ok) await readErr(res, "讀取雲端容量失敗");
+    const data = await res.json();
+    if (!data.storageQuota) throw new Error("無法取得雲端容量");
+    const q = data.storageQuota;
+    const usage = Number(q.usage);
+    const limit = q.limit == null ? null : Number(q.limit);
+    if (!Number.isFinite(usage) || usage < 0 ||
+        (limit !== null && (!Number.isFinite(limit) || limit < 0))) {
+      throw new Error("雲端容量資料不完整");
+    }
+    return { usageBytes: usage, limitBytes: limit };
   }
 
   async function login(opts) {
@@ -882,6 +901,7 @@
   global.JHDrive = {
     init: init,
     login: login,
+    fetchStorageQuota: fetchStorageQuota,
     logout: logout,
     readCatalog: readCatalog,
     saveCategories: saveCategories,
