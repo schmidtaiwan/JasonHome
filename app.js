@@ -1,7 +1,7 @@
 (function () {
   const $ = function (id) { return document.getElementById(id); };
   // 版次顯示：版次{流水號} (日期)。每次改網頁把 PAGE_BUILD +1，並把 index.html 的 ?v= 改成同一個數字。
-  const PAGE_BUILD = 28;
+  const PAGE_BUILD = 29;
   const PAGE_DATE = "2026-11-18";
 
   const state = {
@@ -1405,7 +1405,11 @@
   function paintPreviewChrome() {
     if (state.preview) paintAccount();
     const on = state.preview;
-    $("logout").textContent = on ? "返回" : "登出";
+    $("logout-preview").hidden = !on;
+    $("account-avatar").hidden = on || !$("account-avatar").getAttribute("src");
+    $("account-avatar-fallback").hidden = on || !$("account-avatar").hidden;
+    $("logout").title = on ? "返回" : "登出";
+    $("logout").setAttribute("aria-label", on ? "返回" : "登出");
     $("settings-open").hidden = on;
     $("reload").hidden = on;
     document.body.classList.toggle("previewing", on);
