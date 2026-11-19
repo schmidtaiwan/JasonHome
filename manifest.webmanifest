@@ -1,6 +1,6 @@
 {
-  "name": "三生有杏",
-  "short_name": "三生有杏",
+  "name": "單據管家",
+  "short_name": "單據管家",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
